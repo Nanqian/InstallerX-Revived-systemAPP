@@ -68,7 +68,7 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Explicitly pass the user input to override the dynamic date version in Gradle
-        run: ./gradlew assembleOnlineStableRelease assembleOfflineStableRelease -PVERSION_NAME="${{ inputs.version_tag }}"
+        run: ./gradlew assembleOnlineStableRelease assembleOfflineStableRelease -PVERSION_NAME="${{ inputs.version_tag }}" -PAPP_ID=com.android.packageinstaller
 
       - name: Find and Rename Universal APKs
         id: rename_apk
