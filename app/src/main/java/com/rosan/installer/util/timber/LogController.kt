@@ -1,7 +1,8 @@
 package com.rosan.installer.util.timber
 
 import android.content.Context
-import com.rosan.installer.domain.settings.repository.AppSettingsRepo
+import com.rosan.installer.core.env.AppConfig
+import com.rosan.installer.domain.settings.repository.AppSettingsRepository
 import com.rosan.installer.domain.settings.repository.BooleanSetting
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,7 +13,7 @@ import timber.log.Timber
 
 class LogController(
     private val context: Context,
-    private val appSettingsRepo: AppSettingsRepo
+    private val appSettingsRepo: AppSettingsRepository
 ) {
     private var fileLoggingTree: FileLoggingTree? = null
 
@@ -20,11 +21,17 @@ class LogController(
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     init {
-        scope.launch {
-            appSettingsRepo.getBoolean(BooleanSetting.EnableFileLogging, true)
-                .collectLatest { enabled ->
-                    updateLoggingState(enabled)
-                }
+        // Evaluate the global logging configuration first
+        if (AppConfig.isLogEnabled) {
+            scope.launch {
+                appSettingsRepo.getBoolean(BooleanSetting.EnableFileLogging, true)
+                    .collectLatest { enabled ->
+                        updateLoggingState(enabled)
+                    }
+            }
+        } else {
+            // Force disable file logging if globally disabled
+            updateLoggingState(false)
         }
     }
 

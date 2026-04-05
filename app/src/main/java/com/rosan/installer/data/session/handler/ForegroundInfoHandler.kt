@@ -8,7 +8,6 @@ import android.app.Notification
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import android.widget.Toast
 import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationManagerCompat
@@ -17,16 +16,18 @@ import com.rosan.installer.data.session.notification.LegacyNotificationBuilder
 import com.rosan.installer.data.session.notification.MiIslandNotificationBuilder
 import com.rosan.installer.data.session.notification.ModernNotificationBuilder
 import com.rosan.installer.data.session.notification.NotificationHelper
+import com.rosan.installer.domain.device.model.ShizukuMode
+import com.rosan.installer.domain.device.provider.DeviceCapabilityProvider
 import com.rosan.installer.domain.engine.usecase.GetAppIconUseCase
 import com.rosan.installer.domain.privileged.provider.AppOpsProvider
 import com.rosan.installer.domain.session.model.ProgressEntity
 import com.rosan.installer.domain.session.repository.InstallerSessionRepository
 import com.rosan.installer.domain.settings.model.Authorizer
 import com.rosan.installer.domain.settings.model.InstallMode
-import com.rosan.installer.domain.settings.repository.AppSettingsRepo
+import com.rosan.installer.domain.settings.repository.AppSettingsRepository
 import com.rosan.installer.domain.settings.repository.BooleanSetting
 import com.rosan.installer.domain.settings.repository.IntSetting
-import com.rosan.installer.domain.settings.usecase.config.GetResolvedConfigUseCase
+import com.rosan.installer.util.toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,15 +54,13 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
         private const val NOTIFICATION_UPDATE_INTERVAL_MS = 500L
         private const val PROGRESS_UPDATE_THRESHOLD = 0.03f
         private const val XMSF_PACKAGE_NAME = "com.xiaomi.xmsf"
-
-        // The duration to keep the network blocked to bypass Xiaomi's notification scanner
-        private const val XIAOMI_MAGIC_BLIND_WINDOW_MS = 100L
     }
 
     private data class NotificationSettings(
         val showDialog: Boolean,
         val showLiveActivity: Boolean,
         val showMiIsland: Boolean,
+        val showMiIslandBlockingInterval: Int,
         val autoCloseNotification: Int,
         val preferSystemIcon: Boolean,
         val preferDynamicColor: Boolean
@@ -72,9 +71,9 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
     private var job: Job? = null
     private var sessionStartTime: Long = 0L
     private val context by inject<Context>()
-    private val appSettingsRepo by inject<AppSettingsRepo>()
-    private val appOpsProvider by inject<AppOpsProvider>()
-    private val getResolvedConfig by inject<GetResolvedConfigUseCase>()
+    private val appSettingsRepo by inject<AppSettingsRepository>()
+    private val appOps by inject<AppOpsProvider>()
+    private val capabilityProvider by inject<DeviceCapabilityProvider>()
     private val getAppIcon by inject<GetAppIconUseCase>()
 
     private val notificationManager = NotificationManagerCompat.from(context)
@@ -118,12 +117,13 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
         isXiaomiNetworkBlocked = false
 
         // Initialize synchronously in the suspend function to avoid race conditions with onFinish
-        globalAuthorizer = getResolvedConfig(null).authorizer
+        globalAuthorizer = appSettingsRepo.preferencesFlow.first().authorizer
 
         val settings = NotificationSettings(
             showDialog = appSettingsRepo.getBoolean(BooleanSetting.ShowDialogWhenPressingNotification, true).first(),
             showLiveActivity = appSettingsRepo.getBoolean(BooleanSetting.ShowLiveActivity, false).first(),
             showMiIsland = appSettingsRepo.getBoolean(BooleanSetting.ShowMiIsland, false).first(),
+            showMiIslandBlockingInterval = appSettingsRepo.getInt(IntSetting.ShowMiIslandBlockingInterval, 100).first(),
             autoCloseNotification = appSettingsRepo.getInt(IntSetting.NotificationSuccessAutoClearSeconds, 0).first(),
             preferSystemIcon = appSettingsRepo.getBoolean(BooleanSetting.PreferSystemIconForInstall, false).first(),
             preferDynamicColor = appSettingsRepo.getBoolean(BooleanSetting.LiveActivityDynColorFollowPkgIcon, false).first()
@@ -138,7 +138,7 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
 
         // Determine if fake progress animation is actually required (only for Modern Live Activity)
         val isModernEligible = Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA
-        val requiresAnimation = isModernEligible && settings.showLiveActivity
+        val canAnimate = isModernEligible && settings.showLiveActivity && !settings.showMiIsland
 
         job = scope.launch {
             combine(session.progress, session.background, ticker) { progress, background, tick ->
@@ -147,9 +147,7 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
                 if (old.progress != new.progress || old.background != new.background) return@distinctUntilChanged false
 
                 // Penetrate the distinct barrier only if Live Activity animation is actively required
-                if (requiresAnimation) {
-                    return@distinctUntilChanged !(new.progress is ProgressEntity.Installing && new.background)
-                }
+                if (canAnimate) return@distinctUntilChanged !(new.progress is ProgressEntity.Installing && new.background)
 
                 // Block ticker emissions if progress and background haven't changed
                 return@distinctUntilChanged true
@@ -168,44 +166,56 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
                 } else currentInstallKey = null
 
                 if (progress is ProgressEntity.InstallAnalysedUnsupported) {
-                    scope.launch(Dispatchers.Main) { Toast.makeText(context, progress.reason, Toast.LENGTH_LONG).show() }
-                    session.close()
+                    scope.launch(Dispatchers.Main) { context.toast(progress.reason) }
                     return@collect
                 }
 
                 if (progress is ProgressEntity.InstallAnalysedSuccess && session.config.installMode == InstallMode.AutoNotification) return@collect
 
                 if (background) {
-                    val isModernEligible = Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA
                     val isSameState = lastNotifiedEntity?.let { it::class == progress::class } == true
 
-                    val notification = if (settings.showMiIsland) {
-                        miIslandBuilder.build(
-                            progress,
-                            true,
-                            settings.showDialog,
-                            settings.preferSystemIcon,
-                            fakeItemProgress
-                        )
-                    } else if (isModernEligible && settings.showLiveActivity) {
-                        modernBuilder?.build(
-                            progress,
-                            settings.showDialog,
-                            settings.preferSystemIcon,
-                            settings.preferDynamicColor,
-                            fakeItemProgress,
-                            isSameState
-                        )
-                    } else {
-                        legacyBuilder.build(
-                            progress,
-                            true,
-                            settings.showDialog,
-                            settings.preferSystemIcon
-                        )
+                    val currentRequiresAnimation = canAnimate && progress is ProgressEntity.Installing
+
+                    val notification = when {
+                        settings.showMiIsland -> {
+                            miIslandBuilder.build(
+                                progress,
+                                true,
+                                settings.showDialog,
+                                settings.preferSystemIcon,
+                                fakeItemProgress
+                            )
+                        }
+
+                        isModernEligible && settings.showLiveActivity -> {
+                            modernBuilder?.build(
+                                progress,
+                                settings.showDialog,
+                                settings.preferSystemIcon,
+                                settings.preferDynamicColor,
+                                fakeItemProgress,
+                                isSameState
+                            )
+                        }
+
+                        else -> {
+                            legacyBuilder.build(
+                                progress,
+                                true,
+                                settings.showDialog,
+                                settings.preferSystemIcon
+                            )
+                        }
                     }
 
-                    setNotificationThrottled(notification, progress, settings.showMiIsland)
+                    setNotificationThrottled(
+                        notification,
+                        progress,
+                        settings.showMiIsland,
+                        settings.showMiIslandBlockingInterval,
+                        currentRequiresAnimation
+                    )
 
                     if (progress is ProgressEntity.InstallSuccess || (progress is ProgressEntity.InstallCompleted && progress.results.all { it.success })) {
                         scope.launch {
@@ -221,7 +231,7 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
                     if (elapsedTime < MINIMUM_VISIBILITY_DURATION_MS && progress !is ProgressEntity.Finish && progress !is ProgressEntity.InstallSuccess && progress !is ProgressEntity.InstallCompleted) {
                         delay(MINIMUM_VISIBILITY_DURATION_MS - elapsedTime)
                     }
-                } else setNotificationThrottled(null, progress, false)
+                } else setNotificationThrottled(null, progress, false, settings.showMiIslandBlockingInterval)
             }
         }
     }
@@ -245,6 +255,7 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
         notification: Notification?,
         progress: ProgressEntity,
         isMiIsland: Boolean,
+        blockInterval: Int,
         requiresAnimation: Boolean = false
     ) {
         if (notification == null) {
@@ -271,7 +282,7 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
             val currentLine = progress.output.lastOrNull()
             if (currentLine != lastLogLine && timeSinceLastUpdate > NOTIFICATION_UPDATE_INTERVAL_MS) {
                 lastLogLine = currentLine
-                setNotificationImmediate(notification, isMiIsland)
+                setNotificationImmediate(notification, isMiIsland, blockInterval)
                 lastNotificationUpdateTime = currentTime
             }
             return
@@ -297,7 +308,7 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
         }
 
         if (shouldUpdate) {
-            setNotificationImmediate(notification, isMiIsland)
+            setNotificationImmediate(notification, isMiIsland, blockInterval)
             lastNotificationUpdateTime = currentTime
             if (currentProgress >= 0) lastProgressValue = currentProgress
             lastProgressClass = progress::class
@@ -306,12 +317,16 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
     }
 
     @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
-    private fun setNotificationImmediate(notification: Notification?, isMiIsland: Boolean = false) {
+    private fun setNotificationImmediate(
+        notification: Notification?,
+        isMiIsland: Boolean = false,
+        blockInterval: Int = 100
+    ) {
         if (notification == null) {
             notificationManager.cancel(notificationId)
         } else {
             if (isMiIsland) {
-                notifyWithXiaomiMagic(notificationId, notification)
+                notifyWithXiaomiMagic(notificationId, notification, blockInterval)
             } else {
                 notificationManager.notify(notificationId, notification)
             }
@@ -319,22 +334,36 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
     }
 
     @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
-    private fun notifyWithXiaomiMagic(notificationId: Int, notification: Notification) {
-        val hasPrivilege = globalAuthorizer == Authorizer.Shizuku
+    private fun notifyWithXiaomiMagic(
+        notificationId: Int,
+        notification: Notification,
+        blockInterval: Int
+    ) {
+        // Read the current Shizuku working mode
+        val currentShizukuMode = capabilityProvider.shizukuModeFlow.value
+
+        // Ensure the authorizer is Shizuku AND the identity is explicitly ADB/Shell
+        val isShizukuShell = currentShizukuMode == ShizukuMode.SHELL
+
+        val shouldExecuteMagic = globalAuthorizer == Authorizer.Shizuku && isShizukuShell
         val targetUid = xmsfUid
 
-        // Abort magic if no privilege or if the target package UID cannot be resolved
-        if (!hasPrivilege || targetUid == null) {
+        Timber.tag("XiaomiMagic")
+            .d("Global Authorizer: $globalAuthorizer, Shizuku Mode: $currentShizukuMode")
+
+        // Abort magic if not in Shizuku Shell mode, or if the target UID is missing
+        if (!shouldExecuteMagic || targetUid == null) {
             notificationManager.notify(notificationId, notification)
             return
         }
 
+        Timber.tag("XiaomiMagic").d("Xiaomi magic execution triggered")
         // Launch asynchronously so it does not block the Flow's collect mechanism
         scope.launch(Dispatchers.IO) {
             networkMutex.withLock {
                 try {
                     // 1. Block the network and update state
-                    appOpsProvider.setPackageNetworkingEnabled(
+                    appOps.setPackageNetworkingEnabled(
                         authorizer = globalAuthorizer,
                         uid = targetUid,
                         enabled = false
@@ -345,7 +374,7 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
                     notificationManager.notify(notificationId, notification)
 
                     // 3. Maintain the blind spot long enough to outlast the asynchronous scan
-                    delay(XIAOMI_MAGIC_BLIND_WINDOW_MS)
+                    delay(blockInterval.toLong())
 
                 } catch (e: Exception) {
                     Timber.e(e, "Xiaomi magic execution failed")
@@ -353,7 +382,7 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
                     // Use NonCancellable to ensure network is restored even if the coroutine is cancelled
                     withContext(NonCancellable) {
                         try {
-                            appOpsProvider.setPackageNetworkingEnabled(
+                            appOps.setPackageNetworkingEnabled(
                                 authorizer = globalAuthorizer,
                                 uid = targetUid,
                                 enabled = true
@@ -377,12 +406,16 @@ class ForegroundInfoHandler(scope: CoroutineScope, session: InstallerSessionRepo
         val targetUid = xmsfUid
 
         // Double-check initialization to be absolutely safe, though onStart now guarantees it
-        if (::globalAuthorizer.isInitialized && globalAuthorizer == Authorizer.Shizuku && targetUid != null) {
+        if (::globalAuthorizer.isInitialized &&
+            globalAuthorizer == Authorizer.Shizuku &&
+            capabilityProvider.shizukuModeFlow.value == ShizukuMode.SHELL &&
+            targetUid != null
+        ) {
             withContext(Dispatchers.IO + NonCancellable) {
                 networkMutex.withLock {
                     if (isXiaomiNetworkBlocked) {
                         try {
-                            appOpsProvider.setPackageNetworkingEnabled(
+                            appOps.setPackageNetworkingEnabled(
                                 authorizer = globalAuthorizer,
                                 uid = targetUid,
                                 enabled = true

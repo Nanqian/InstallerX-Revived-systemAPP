@@ -13,15 +13,15 @@ import com.rosan.installer.data.settings.provider.PrivilegedProviderImpl
 import com.rosan.installer.data.settings.provider.SystemAppProviderImpl
 import com.rosan.installer.data.settings.provider.SystemEnvProviderImpl
 import com.rosan.installer.data.settings.repository.AppRepositoryImpl
-import com.rosan.installer.data.settings.repository.AppSettingsRepoImpl
-import com.rosan.installer.data.settings.repository.ConfigRepoImpl
+import com.rosan.installer.data.settings.repository.AppSettingsRepositoryImpl
+import com.rosan.installer.data.settings.repository.ConfigRepositoryImpl
 import com.rosan.installer.domain.settings.provider.PrivilegedProvider
 import com.rosan.installer.domain.settings.provider.SystemAppProvider
 import com.rosan.installer.domain.settings.provider.SystemEnvProvider
 import com.rosan.installer.domain.settings.provider.ThemeStateProvider
 import com.rosan.installer.domain.settings.repository.AppRepository
-import com.rosan.installer.domain.settings.repository.AppSettingsRepo
-import com.rosan.installer.domain.settings.repository.ConfigRepo
+import com.rosan.installer.domain.settings.repository.AppSettingsRepository
+import com.rosan.installer.domain.settings.repository.ConfigRepository
 import com.rosan.installer.domain.settings.usecase.config.GetConfigDraftUseCase
 import com.rosan.installer.domain.settings.usecase.config.GetResolvedConfigUseCase
 import com.rosan.installer.domain.settings.usecase.config.SaveConfigUseCase
@@ -32,19 +32,14 @@ import com.rosan.installer.domain.settings.usecase.settings.ManageSharedUidListU
 import com.rosan.installer.domain.settings.usecase.settings.SetLauncherIconUseCase
 import com.rosan.installer.domain.settings.usecase.settings.ToggleUninstallFlagUseCase
 import com.rosan.installer.domain.settings.usecase.settings.UpdateSettingUseCase
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.bind
 import org.koin.core.module.dsl.factoryOf
 import org.koin.core.module.dsl.singleOf
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 val settingsModule = module {
-    // Provide a global coroutineScope
-    single<CoroutineScope> { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
-
     // Room
     single { InstallerRoom.createInstance() }
 
@@ -52,7 +47,7 @@ val settingsModule = module {
     single { get<InstallerRoom>().configDao }
 
     singleOf(::AppRepositoryImpl) { bind<AppRepository>() }
-    singleOf(::ConfigRepoImpl) { bind<ConfigRepo>() }
+    singleOf(::ConfigRepositoryImpl) { bind<ConfigRepository>() }
 
     // DataStore
     single<DataStore<Preferences>> {
@@ -67,7 +62,13 @@ val settingsModule = module {
 
     singleOf(::AppDataStore)
 
-    singleOf(::AppSettingsRepoImpl) { bind<AppSettingsRepo>() }
+    single<AppSettingsRepository> {
+        AppSettingsRepositoryImpl(
+            appDataStore = get(),
+            capabilityProvider = get(),
+            appScope = get(named("AppScope"))
+        )
+    }
 
     // Providers
     singleOf(::SystemEnvProviderImpl) { bind<SystemEnvProvider>() }

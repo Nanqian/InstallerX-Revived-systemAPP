@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.rosan.installer.R
 import com.rosan.installer.core.env.DeviceConfig
 import com.rosan.installer.domain.device.model.Manufacturer
-import com.rosan.installer.domain.settings.model.RootImplementation
+import com.rosan.installer.domain.settings.model.RootMode
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -39,12 +39,12 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.extra.SuperBottomSheet
-import top.yukonga.miuix.kmp.extra.WindowDialog
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.Check
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowBottomSheet
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
  * A dialog to confirm an action, dynamically showing specific errors or a generic message.
@@ -298,7 +298,7 @@ fun ErrorDisplaySheet(
     onRetry: (() -> Unit)? = null,
     title: String
 ) {
-    SuperBottomSheet(
+    WindowBottomSheet(
         show = showState.value,
         onDismissRequest = onDismissRequest,
         title = title,
@@ -362,24 +362,24 @@ fun ErrorDisplaySheet(
 fun MiuixRootImplementationDialog(
     showState: MutableState<Boolean>,
     onDismiss: () -> Unit,
-    onConfirm: (RootImplementation) -> Unit,
+    onConfirm: (RootMode) -> Unit,
 ) {
-    val rootImplementations = remember {
+    val rootModes = remember {
         listOf(
-            RootImplementation.Magisk,
-            RootImplementation.KernelSU,
-            RootImplementation.APatch
+            RootMode.Magisk,
+            RootMode.KernelSU,
+            RootMode.APatch
         )
     }
     val implementationNames = remember {
         mapOf(
-            RootImplementation.Magisk to "Magisk",
-            RootImplementation.KernelSU to "KernelSU",
-            RootImplementation.APatch to "APatch"
+            RootMode.Magisk to "Magisk",
+            RootMode.KernelSU to "KernelSU",
+            RootMode.APatch to "APatch"
         )
     }
 
-    var selectedImpl by remember { mutableStateOf(rootImplementations.first()) }
+    var selectedImpl by remember { mutableStateOf(rootModes.first()) }
 
     WindowDialog(
         show = showState.value,
@@ -389,7 +389,7 @@ fun MiuixRootImplementationDialog(
         content = {
             Column {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    rootImplementations.forEach { impl ->
+                    rootModes.forEach { impl ->
                         val isSelected = selectedImpl == impl
 
                         SelectableRow(
