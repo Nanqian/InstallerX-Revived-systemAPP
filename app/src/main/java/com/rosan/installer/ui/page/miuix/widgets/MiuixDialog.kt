@@ -28,8 +28,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.rosan.installer.R
-import com.rosan.installer.core.env.DeviceConfig
-import com.rosan.installer.domain.device.model.Manufacturer
+import com.rosan.installer.domain.settings.model.GithubUpdateChannel
 import com.rosan.installer.domain.settings.model.RootMode
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -82,12 +81,18 @@ fun MiuixUnsavedChangesDialog(
                     // If there are errors, display each one on a new line.
                     Column {
                         errorMessages.forEach { message ->
-                            Text(text = message)
+                            Text(
+                                text = message,
+                                color = MiuixTheme.colorScheme.onSurface
+                            )
                         }
                     }
                 } else {
                     // Otherwise, show the generic unsaved changes message.
-                    Text(text = stringResource(R.string.config_dialog_message_unsaved_changes))
+                    Text(
+                        text = stringResource(R.string.config_dialog_message_unsaved_changes),
+                        color = MiuixTheme.colorScheme.onSurface
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(24.dp)) // Add spacing before buttons
@@ -110,52 +115,6 @@ fun MiuixUnsavedChangesDialog(
                         modifier = Modifier.weight(1f),
                         onClick = onConfirm,
                         text = stringResource(R.string.discard), // Use text parameter directly
-                        colors = ButtonDefaults.textButtonColorsPrimary() // Apply primary color style
-                    )
-                }
-            }
-        }
-    )
-}
-
-@Composable
-fun MiuixHideLauncherIconWarningDialog(
-    showState: MutableState<Boolean>,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
-    WindowDialog(
-        show = showState.value,
-        onDismissRequest = onDismiss,
-        title = stringResource(R.string.warning),
-        content = {
-            // Custom content layout with body text and action buttons
-            Column {
-                // Warning message
-                Text(stringResource(R.string.theme_settings_hide_launcher_icon_warning))
-                if (DeviceConfig.currentManufacturer == Manufacturer.XIAOMI)
-                    Text(stringResource(R.string.theme_settings_hide_launcher_icon_warning_xiaomi))
-                Spacer(modifier = Modifier.height(24.dp)) // Spacing before buttons
-
-                // Action buttons row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Dismiss button
-                    TextButton(
-                        modifier = Modifier.weight(1f),
-                        onClick = onDismiss,
-                        text = stringResource(R.string.cancel)
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Confirm button with primary color styling
-                    TextButton(
-                        modifier = Modifier.weight(1f),
-                        onClick = onConfirm,
-                        text = stringResource(R.string.confirm),
                         colors = ButtonDefaults.textButtonColorsPrimary() // Apply primary color style
                     )
                 }
@@ -447,6 +406,7 @@ private fun SelectableRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
+        @Suppress("DEPRECATION")
         Text(
             text = text,
             color = contentColor
@@ -489,12 +449,14 @@ fun MiuixUninstallPackageDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
+                    @Suppress("DEPRECATION")
                     TextButton(
                         modifier = Modifier.weight(1f),
                         text = stringResource(R.string.cancel),
                         onClick = onDismiss
                     )
                     Spacer(modifier = Modifier.width(8.dp))
+                    @Suppress("DEPRECATION")
                     TextButton(
                         modifier = Modifier.weight(1f),
                         text = stringResource(R.string.confirm),
@@ -511,41 +473,125 @@ fun MiuixUninstallPackageDialog(
     )
 }
 
-/**
- * A miuix-style dialog to warn the user about unstable blur effects on Android 11 and below.
- */
 @Composable
-fun MiuixBlurWarningDialog(
+fun MiuixGithubUpdateChannelSelectionDialog(
     showState: MutableState<Boolean>,
+    currentSelection: GithubUpdateChannel,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
+    onConfirm: (GithubUpdateChannel) -> Unit
 ) {
+    val channels = remember {
+        listOf(
+            GithubUpdateChannel.OFFICIAL,
+            GithubUpdateChannel.PROXY_7ED,
+            GithubUpdateChannel.CUSTOM
+        )
+    }
+
+    val channelNames = remember {
+        mapOf(
+            GithubUpdateChannel.OFFICIAL to R.string.lab_update_github_proxy_official,
+            GithubUpdateChannel.PROXY_7ED to R.string.lab_update_github_proxy_7ed,
+            GithubUpdateChannel.CUSTOM to R.string.lab_update_github_proxy_custom
+        )
+    }
+
+    var selectedChannel by remember { mutableStateOf(currentSelection) }
+
     WindowDialog(
         show = showState.value,
         onDismissRequest = onDismiss,
-        title = stringResource(R.string.warning),
+        title = stringResource(R.string.lab_update_github_proxy),
+        insideMargin = DpSize(0.dp, 24.dp),
         content = {
             Column {
-                Text(stringResource(R.string.theme_settings_use_blur_warning))
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    channels.forEach { channel ->
+                        val isSelected = selectedChannel == channel
 
-                Spacer(modifier = Modifier.height(24.dp))
+                        SelectableRow(
+                            text = stringResource(channelNames[channel]!!),
+                            isSelected = isSelected,
+                            onClick = { selectedChannel = channel }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    @Suppress("DEPRECATION")
                     TextButton(
                         modifier = Modifier.weight(1f),
                         onClick = onDismiss,
                         text = stringResource(R.string.cancel)
                     )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
+                    @Suppress("DEPRECATION")
                     TextButton(
                         modifier = Modifier.weight(1f),
-                        onClick = onConfirm,
+                        onClick = {
+                            onConfirm(selectedChannel)
+                            onDismiss()
+                        },
                         text = stringResource(R.string.confirm),
+                        colors = ButtonDefaults.textButtonColorsPrimary()
+                    )
+                }
+            }
+        }
+    )
+}
+
+@Composable
+fun MiuixCustomGithubProxyUrlDialog(
+    showState: MutableState<Boolean>,
+    initialUrl: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var url by remember { mutableStateOf(initialUrl) }
+    val isConfirmEnabled = url.isNotBlank()
+
+    WindowDialog(
+        show = showState.value,
+        onDismissRequest = onDismiss,
+        title = stringResource(R.string.lab_update_github_proxy_custom),
+        content = {
+            Column {
+                Spacer(modifier = Modifier.height(8.dp))
+                TextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = "GHProxy URL",
+                    useLabelAsPlaceholder = true,
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    @Suppress("DEPRECATION")
+                    TextButton(
+                        modifier = Modifier.weight(1f),
+                        text = stringResource(R.string.cancel),
+                        onClick = onDismiss
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    @Suppress("DEPRECATION")
+                    TextButton(
+                        modifier = Modifier.weight(1f),
+                        text = stringResource(R.string.confirm),
+                        onClick = {
+                            onConfirm(url)
+                            onDismiss()
+                        },
+                        enabled = isConfirmEnabled,
                         colors = ButtonDefaults.textButtonColorsPrimary()
                     )
                 }

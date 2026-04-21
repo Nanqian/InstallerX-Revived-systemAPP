@@ -32,10 +32,12 @@ import com.rosan.installer.domain.session.model.UninstallInfo
 import com.rosan.installer.domain.session.repository.InstallerSessionRepository
 import com.rosan.installer.domain.session.repository.NetworkResolver
 import com.rosan.installer.domain.settings.model.Authorizer
+import com.rosan.installer.domain.settings.model.BiometricAuthMode
 import com.rosan.installer.domain.settings.model.ConfigModel.Companion.default
 import com.rosan.installer.domain.settings.model.InstallMode
 import com.rosan.installer.domain.settings.repository.AppSettingsRepository
 import com.rosan.installer.domain.settings.repository.BooleanSetting
+import com.rosan.installer.domain.settings.repository.StringSetting
 import com.rosan.installer.ui.common.auth.safeBiometricAuthOrThrow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -102,21 +104,34 @@ class ActionHandler(scope: CoroutineScope, session: InstallerSessionRepository) 
             session.action.collect { action ->
                 Timber.d("[id=$sessionId] Received action: ${action::class.simpleName}")
 
-                // If the action is Cancel, we handle it immediately by cancelling the processing job.
                 when (action) {
                     is InstallerSessionRepositoryImpl.Action.Cancel -> {
                         handleCancel()
                     }
 
                     is InstallerSessionRepositoryImpl.Action.Finish -> {
-                        // Finish should also stop any ongoing work
                         processingJob?.cancel()
                         session.progress.emit(ProgressEntity.Finish)
                     }
 
+                    // Handle Confirmation Actions Concurrently
+                    is InstallerSessionRepositoryImpl.Action.ResolveConfirmInstall -> {
+                        // Launch concurrently, DO NOT cancel the main processingJob (which is likely suspended waiting for commit)
+                        scope.launch {
+                            runCatching { handleAction(action) }
+                                .onFailure { Timber.e(it, "ResolveConfirmInstall failed") }
+                        }
+                    }
+
+                    is InstallerSessionRepositoryImpl.Action.ApproveSession -> {
+                        // Launch concurrently
+                        scope.launch {
+                            runCatching { handleAction(action) }
+                                .onFailure { Timber.e(it, "ApproveSession failed") }
+                        }
+                    }
+
                     else -> {
-                        // For other actions, we launch a new job to process them.
-                        // This prevents the collector from being blocked, allowing Action.Cancel to be received.
                         startProcessingJob(action)
                     }
                 }
@@ -218,16 +233,19 @@ class ActionHandler(scope: CoroutineScope, session: InstallerSessionRepository) 
 
         // Resolve Data (IO Heavy - Cancellable via SourceResolver)
         Timber.d("[id=$sessionId] resolve: Resolving data URIs...")
-        val data = sourceResolver.resolve(activity.intent)
+        val resolveResult = sourceResolver.resolve(activity.intent)
 
         // Check active after IO
         if (!currentCoroutineContext().isActive) throw CancellationException()
 
-        session.data = data
+        // Store both stringified URIs and parsed data into the session
+        session.sourceUris = resolveResult.uris
+        session.data = resolveResult.data
+
         Timber.d("[id=$sessionId] resolve: Data resolved successfully (${session.data.size} items).")
 
         // Post-Resolution Logic
-        val forceDialog = data.size > 1 || data.any { it.sourcePath()?.endsWith(".zip", true) == true }
+        val forceDialog = session.data.size > 1 || session.data.any { it.sourcePath()?.endsWith(".zip", true) == true }
         if (forceDialog) {
             Timber.d("[id=$sessionId] resolve: Batch share or module file detected. Forcing install mode to Dialog.")
             session.config = session.config.copy(installMode = InstallMode.Dialog)
@@ -292,9 +310,20 @@ class ActionHandler(scope: CoroutineScope, session: InstallerSessionRepository) 
     private suspend fun requestUserBiometricAuthentication(
         isInstall: Boolean
     ) {
-        val requireBiometricAuth =
-            if (isInstall) appSettingsRepo.getBoolean(BooleanSetting.InstallerRequireBiometricAuth, false).first()
-            else appSettingsRepo.getBoolean(BooleanSetting.UninstallerRequireBiometricAuth, false).first()
+        val requireBiometricAuth = if (isInstall) {
+            val globalMode = appSettingsRepo.getString(
+                StringSetting.InstallerBiometricAuthMode,
+                BiometricAuthMode.FollowConfig.value
+            ).first().let { BiometricAuthMode.fromValue(it) }
+
+            when (globalMode) {
+                BiometricAuthMode.Disable -> false
+                BiometricAuthMode.Enable -> true
+                BiometricAuthMode.FollowConfig -> session.config.requireBiometricAuth
+            }
+        } else {
+            appSettingsRepo.getBoolean(BooleanSetting.UninstallerRequireBiometricAuth, false).first()
+        }
 
         if (!requireBiometricAuth) return
 
@@ -425,13 +454,32 @@ class ActionHandler(scope: CoroutineScope, session: InstallerSessionRepository) 
         }
     }
 
-    private suspend fun resolveConfirm(activity: Activity, sessionId: Int) {
-        Timber.d("[id=$sessionId] resolveConfirmInstall: Starting for session $sessionId.")
-        session.config = configResolver.resolve(activity)
+    private suspend fun resolveConfirm(activity: Activity, sysSessionId: Int) {
+        Timber.d("[id=$sessionId] resolveConfirmInstall: Starting for system session $sysSessionId.")
 
-        val details = getSessionConfirmationDetails(sessionId, session.config)
+        // 1. Capture the exact Installing state before we override it
+        val previousState = session.progress.replayCache.firstOrNull()
+        val installingState = previousState as? ProgressEntity.Installing
+        val isSelfSession = installingState != null
+
+        // Extract the progress, defaulting to 1 if it wasn't an Installing state
+        val currentProgress = installingState?.current ?: 1
+        val totalProgress = installingState?.total ?: 1
+
+        if (!isSelfSession) {
+            session.config = configResolver.resolve(activity)
+        }
+
+        // Pass the captured progress into the UseCase
+        val details = getSessionConfirmationDetails(
+            sessionId = sysSessionId,
+            config = session.config,
+            isSelfSession = isSelfSession,
+            currentProgress = currentProgress,
+            totalProgress = totalProgress
+        )
+
         session.confirmationDetails.value = details
-
         Timber.d("[id=$sessionId] resolveConfirmInstall: Success. Emitting InstallConfirming.")
         session.progress.emit(ProgressEntity.InstallConfirming)
     }
@@ -488,7 +536,30 @@ class ActionHandler(scope: CoroutineScope, session: InstallerSessionRepository) 
             granted = granted,
             config = session.config
         )
-        session.progress.emit(ProgressEntity.Finish)
+
+        val details = session.confirmationDetails.value
+        val isSelfSession = details?.isSelfSession == true
+
+        if (!isSelfSession) {
+            // For external apps, approving/denying the session is the end of our job.
+            session.progress.emit(ProgressEntity.Finish)
+        } else {
+            // For our own installations, we need to wait for the system callback.
+            if (granted) {
+                // Restore the Installing UI while we wait for LocalIntentReceiver.
+                val current = details.currentProgress
+                val total = details.totalProgress
+                val label = details.appLabel.toString()
+
+                session.progress.emit(ProgressEntity.Installing(current, total, label))
+            } else {
+                // DO NOT emit InstallFailed manually here!
+                // The system will abort the session and send an INSTALL_FAILED_ABORTED intent
+                // to our LocalIntentReceiver. The suspended ProcessInstallationUseCase will catch it,
+                // throw the correct InstallException, update session.error, and naturally emit InstallFailed.
+                Timber.d("[id=$sessionId] Self-session rejected. Waiting for system abort callback to trigger InstallException.")
+            }
+        }
     }
 
     private suspend fun handleReboot(reason: String) {
@@ -505,12 +576,20 @@ class ActionHandler(scope: CoroutineScope, session: InstallerSessionRepository) 
 
         // Execute the reboot command
         withContext(Dispatchers.IO) {
-            val cmd = if (reason == "recovery") {
-                // KEYCODE_POWER = 26. Hides incorrect "Factory data reset" message in recovery
-                "input keyevent 26 ; svc power reboot $reason || reboot $reason"
-            } else {
-                val reasonArg = if (reason.isNotEmpty()) " $reason" else ""
-                "svc power reboot$reasonArg || reboot$reasonArg"
+            val cmd = when (reason) {
+                "ksud_soft_reboot" -> {
+                    "ksud soft-reboot"
+                }
+
+                "recovery" -> {
+                    // KEYCODE_POWER = 26. Hides incorrect "Factory data reset" message in recovery
+                    "input keyevent 26 ; svc power reboot $reason || reboot $reason"
+                }
+
+                else -> {
+                    val reasonArg = if (reason.isNotEmpty()) " $reason" else ""
+                    "svc power reboot$reasonArg || reboot$reasonArg"
+                }
             }
 
             val commandArray = arrayOf("sh", "-c", cmd)
@@ -524,6 +603,7 @@ class ActionHandler(scope: CoroutineScope, session: InstallerSessionRepository) 
     private fun resetState() {
         session.error = Throwable()
         session.config = default
+        session.sourceUris = emptyList()
         session.data = emptyList()
         session.analysisResults = emptyList()
         session.progress.tryEmit(ProgressEntity.Ready)

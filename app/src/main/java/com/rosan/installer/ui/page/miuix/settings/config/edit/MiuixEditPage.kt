@@ -32,43 +32,19 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavController
 import com.rosan.installer.R
+import com.rosan.installer.domain.settings.model.BiometricAuthMode
+import com.rosan.installer.ui.navigation.LocalNavigator
 import com.rosan.installer.ui.page.main.settings.config.edit.EditViewAction
 import com.rosan.installer.ui.page.main.settings.config.edit.EditViewEvent
 import com.rosan.installer.ui.page.main.settings.config.edit.EditViewModel
 import com.rosan.installer.ui.page.miuix.widgets.MiuixBackButton
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataAllowAllRequestedPermissionsWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataAllowDowngradeWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataAllowTestOnlyWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataApkChooseAllWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataAuthorizerWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataAutoDeleteWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataBypassLowTargetSdkWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataCustomizeAuthorizerWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataDeclareInstallerWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataDescriptionWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataForAllUserWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataInstallModeWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataInstallRequesterWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataManualDexoptWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataNameWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataPackageSourceWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataSplitChooseAllWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDataUserWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDisplaySdkWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixDisplaySizeWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixInstallReasonWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixRequestUpdateOwnershipWidget
 import com.rosan.installer.ui.page.miuix.widgets.MiuixSettingsTipCard
-import com.rosan.installer.ui.page.miuix.widgets.MiuixShowToastWidget
 import com.rosan.installer.ui.page.miuix.widgets.MiuixUnsavedChangesDialog
 import com.rosan.installer.ui.theme.getMiuixAppBarColor
-import com.rosan.installer.ui.theme.installerHazeEffect
-import com.rosan.installer.ui.theme.rememberMiuixHazeStyle
+import com.rosan.installer.ui.theme.installerMiuixBlurEffect
+import com.rosan.installer.ui.theme.rememberMiuixBlurBackdrop
 import com.rosan.installer.ui.util.isNoneActive
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.flow.collectLatest
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -81,6 +57,7 @@ import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.Ok
@@ -89,19 +66,17 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 @Composable
 fun MiuixEditPage(
-    navController: NavController,
     id: Long? = null,
     viewModel: EditViewModel = koinViewModel { parametersOf(id) },
     useBlur: Boolean
 ) {
+    val navigator = LocalNavigator.current
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val dispatch = viewModel::dispatch
 
     val snackBarHostState = remember { SnackbarHostState() }
     val scrollBehavior = MiuixScrollBehavior()
-    val hazeState = if (useBlur) remember { HazeState() } else null
-    val hazeStyle = rememberMiuixHazeStyle()
     val showUnsavedDialogState = remember { mutableStateOf(false) }
 
     MiuixUnsavedChangesDialog(
@@ -111,7 +86,7 @@ fun MiuixEditPage(
         },
         onConfirm = {
             showUnsavedDialogState.value = false
-            navController.navigateUp()
+            navigator.pop()
         },
         errorMessages = state.activeErrorResIds.map { stringResource(it) }
     )
@@ -145,7 +120,7 @@ fun MiuixEditPage(
                 }
 
                 is EditViewEvent.Saved -> {
-                    navController.navigateUp()
+                    navigator.pop()
                 }
             }
         }
@@ -154,18 +129,20 @@ fun MiuixEditPage(
     val layoutDirection = LocalLayoutDirection.current
     val horizontalSafeInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal).asPaddingValues()
 
+    val topBarBackdrop = rememberMiuixBlurBackdrop(useBlur)
+
     Scaffold(
         modifier = Modifier.imePadding(),
         topBar = {
             TopAppBar(
-                modifier = Modifier.installerHazeEffect(hazeState, hazeStyle),
-                color = hazeState.getMiuixAppBarColor(),
+                modifier = Modifier.installerMiuixBlurEffect(topBarBackdrop),
+                color = topBarBackdrop.getMiuixAppBarColor(),
                 scrollBehavior = scrollBehavior,
-                title = stringResource(id = if (id == null) R.string.add else R.string.update),
+                title = stringResource(id?.let { R.string.update } ?: R.string.add),
                 navigationIcon = {
                     MiuixBackButton(
                         icon = MiuixIcons.Regular.Close,
-                        onClick = { navController.navigateUp() }
+                        onClick = { navigator.pop() }
                     )
                 },
                 actions = {
@@ -185,7 +162,7 @@ fun MiuixEditPage(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .then(hazeState?.let { Modifier.hazeSource(it) } ?: Modifier)
+                .then(topBarBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier)
                 .scrollEndHaptic()
                 .overScrollVertical()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -209,6 +186,8 @@ fun MiuixEditPage(
                     MiuixDataAuthorizerWidget(state = state, dispatch = dispatch)
                     MiuixDataCustomizeAuthorizerWidget(state = state, dispatch = dispatch)
                     MiuixDataInstallModeWidget(state = state, dispatch = dispatch)
+                    if (state.globalInstallerBiometricAuthMode == BiometricAuthMode.FollowConfig)
+                        MiuixDataRequireBiometricAuthWidget(state = state, dispatch = dispatch)
                     MiuixShowToastWidget(state = state, dispatch = dispatch)
                 }
             }

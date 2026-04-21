@@ -23,7 +23,6 @@ import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
@@ -43,41 +42,36 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavController
 import com.rosan.installer.R
 import com.rosan.installer.core.env.AppConfig
 import com.rosan.installer.domain.device.model.Level
 import com.rosan.installer.domain.device.provider.DeviceCapabilityProvider
 import com.rosan.installer.domain.settings.model.Authorizer
 import com.rosan.installer.ui.icons.AppIcons
-import com.rosan.installer.ui.page.main.settings.SettingsScreen
+import com.rosan.installer.ui.navigation.LocalNavigator
+import com.rosan.installer.ui.navigation.Navigator
+import com.rosan.installer.ui.navigation.Route
 import com.rosan.installer.ui.page.main.widget.card.InfoTipCard
 import com.rosan.installer.ui.page.main.widget.dialog.ErrorDisplayDialog
-import com.rosan.installer.ui.page.main.widget.setting.AutoLockInstaller
-import com.rosan.installer.ui.page.main.widget.setting.DefaultInstaller
-import com.rosan.installer.ui.page.main.widget.setting.DisableAdbVerify
-import com.rosan.installer.ui.page.main.widget.setting.IgnoreBatteryOptimizationSetting
-import com.rosan.installer.ui.page.main.widget.setting.SettingsAboutItemWidget
-import com.rosan.installer.ui.page.main.widget.setting.SettingsNavigationItemWidget
 import com.rosan.installer.ui.page.main.widget.setting.SplicedColumnGroup
+import com.rosan.installer.ui.page.main.widget.snackbar.SwipeableSnackbarHost
 import com.rosan.installer.ui.page.main.widget.util.OnLifecycleEvent
-import com.rosan.installer.ui.theme.getM3TopBarColor
-import com.rosan.installer.ui.theme.installerHazeEffect
+import com.rosan.installer.ui.theme.getMaterial3AppBarColor
+import com.rosan.installer.ui.theme.installerMaterial3BlurEffect
 import com.rosan.installer.ui.theme.none
-import com.rosan.installer.ui.theme.rememberMaterial3HazeStyle
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
+import com.rosan.installer.ui.theme.rememberMaterial3BlurBackdrop
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
+import top.yukonga.miuix.kmp.blur.layerBackdrop
 
 @SuppressLint("LocalContextGetResourceValueCall")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun NewPreferredPage(
-    navController: NavController,
+    navigator: Navigator = LocalNavigator.current,
+    useBlur: Boolean,
     viewModel: PreferredViewModel = koinViewModel(),
     outerPadding: PaddingValues = PaddingValues(0.dp),
-    hazeState: HazeState? = null
 ) {
     val context = LocalContext.current
     val uiState by viewModel.state.collectAsStateWithLifecycle()
@@ -94,8 +88,6 @@ fun NewPreferredPage(
         Level.PREVIEW -> stringResource(id = R.string.preview)
         Level.UNSTABLE -> stringResource(id = R.string.unstable)
     }
-
-    val hazeStyle = rememberMaterial3HazeStyle()
 
     val snackBarHostState = remember { SnackbarHostState() }
     var errorDialogInfo by remember {
@@ -129,6 +121,8 @@ fun NewPreferredPage(
     val layoutDirection = LocalLayoutDirection.current
     val horizontalSafeInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal).asPaddingValues()
 
+    val backdrop = rememberMaterial3BlurBackdrop(useBlur)
+
     Scaffold(
         modifier = Modifier
             .nestedScroll(scrollBehavior.nestedScrollConnection)
@@ -137,19 +131,19 @@ fun NewPreferredPage(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
             LargeFlexibleTopAppBar(
-                modifier = Modifier.installerHazeEffect(hazeState, hazeStyle),
+                modifier = Modifier.installerMaterial3BlurEffect(backdrop),
                 windowInsets = TopAppBarDefaults.windowInsets.add(WindowInsets(left = 12.dp)),
                 title = { Text(text = stringResource(id = R.string.preferred)) },
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = hazeState.getM3TopBarColor(),
+                    containerColor = backdrop.getMaterial3AppBarColor(),
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
-                    scrolledContainerColor = hazeState.getM3TopBarColor()
+                    scrolledContainerColor = backdrop.getMaterial3AppBarColor()
                 )
             )
         },
         snackbarHost = {
-            SnackbarHost(
+            SwipeableSnackbarHost(
                 modifier = Modifier.padding(bottom = outerPadding.calculateBottomPadding()),
                 hostState = snackBarHostState
             )
@@ -158,7 +152,7 @@ fun NewPreferredPage(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .then(hazeState?.let { Modifier.hazeSource(it) } ?: Modifier),
+                .then(backdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier),
             contentPadding = PaddingValues(
                 start = horizontalSafeInsets.calculateStartPadding(layoutDirection),
                 top = paddingValues.calculateTopPadding(),
@@ -176,7 +170,9 @@ fun NewPreferredPage(
                             icon = AppIcons.Theme,
                             title = stringResource(R.string.theme_settings),
                             description = stringResource(R.string.theme_settings_desc),
-                            onClick = { navController.navigate(SettingsScreen.Theme.route) }
+                            onClick = {
+                                navigator.push(Route.Theme)
+                            }
                         )
                     }
                     item {
@@ -184,7 +180,9 @@ fun NewPreferredPage(
                             icon = AppIcons.InstallMode,
                             title = stringResource(R.string.installer_settings),
                             description = stringResource(R.string.installer_settings_desc),
-                            onClick = { navController.navigate(SettingsScreen.InstallerGlobal.route) }
+                            onClick = {
+                                navigator.push(Route.InstallerGlobal)
+                            }
                         )
                     }
                     item {
@@ -192,7 +190,9 @@ fun NewPreferredPage(
                             icon = AppIcons.Delete,
                             title = stringResource(R.string.uninstaller_settings),
                             description = stringResource(R.string.uninstaller_settings_desc),
-                            onClick = { navController.navigate(SettingsScreen.UninstallerGlobal.route) }
+                            onClick = {
+                                navigator.push(Route.UninstallerGlobal)
+                            }
                         )
                     }
                 }
@@ -257,7 +257,9 @@ fun NewPreferredPage(
                             imageVector = AppIcons.Lab,
                             headlineContentText = stringResource(R.string.lab),
                             supportingContentText = stringResource(R.string.lab_desc),
-                            onClick = { navController.navigate(SettingsScreen.Lab.route) }
+                            onClick = {
+                                navigator.push(Route.Lab)
+                            }
                         )
                     }
                     item {
@@ -269,7 +271,9 @@ fun NewPreferredPage(
                                 uiState.remoteVersion
                             ) else "$revLevel ${AppConfig.VERSION_NAME}",
                             supportingContentColor = if (uiState.hasUpdate) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            onClick = { navController.navigate(SettingsScreen.About.route) }
+                            onClick = {
+                                navigator.push(Route.About)
+                            }
                         )
                     }
                 }

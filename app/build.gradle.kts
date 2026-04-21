@@ -11,8 +11,20 @@ val gitHash: String = try {
     "unknown"
 }
 
+// Get the date of the latest commit directly formatted as yy.MM
+val gitDate: String = try {
+    providers.exec {
+        commandLine("git", "log", "-1", "--format=%cd", "--date=format:%y.%m")
+    }.standardOutput.asText.get().trim()
+} catch (_: Exception) {
+    // Fallback to current date if git command fails
+    LocalDate.now().format(DateTimeFormatter.ofPattern("yy.MM"))
+}
+
 val manualVersionName = project.findProperty("VERSION_NAME") as String?
-val dynamicVersionName: String = LocalDate.now().format(DateTimeFormatter.ofPattern("yy.MM"))
+
+// Combine the git commit date and the short hash
+val dynamicVersionName = gitDate
 val baseVersionName: String = manualVersionName ?: dynamicVersionName
 
 plugins {
@@ -62,7 +74,7 @@ android {
         //   (e.g., "25.07.abc1234"), configured in productFlavors.
         // - Stable builds use the base versionName as-is (e.g., "25.07").
         // - versionCode must be incremented manually before each Stable release.
-        versionCode = 47
+        versionCode = 49
         versionName = baseVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -173,6 +185,10 @@ kotlin {
     jvmToolchain(25)
 }
 
+configurations.all {
+    exclude(group = "androidx.navigationevent", module = "navigationevent-compose")
+}
+
 aboutLibraries {
     library {
         // Enable the duplication mode, allows to merge, or link dependencies which relate
@@ -182,7 +198,7 @@ aboutLibraries {
     }
 }
 
-room {
+room3 {
     // Specify the schema directory
     schemaDirectory("$projectDir/schemas")
 }
@@ -200,7 +216,14 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
-    implementation(libs.compose.navigation)
+    implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+
+    implementation(libs.androidx.navigation3.runtime)
+    //implementation(libs.androidx.navigation3.ui)
+    implementation(libs.androidx.navigationevent) {
+        exclude(group = "androidx.navigation", module = "navigationevent-compose")
+    }
+
     implementation(libs.compose.materialIcons)
     // Preview support only for debug builds
     debugImplementation(libs.compose.ui.tooling)
@@ -208,8 +231,6 @@ dependencies {
 
     implementation(libs.room.runtime)
     ksp(libs.room.compiler)
-    implementation(libs.room.ktx)
-    // implementation(libs.work.runtime.ktx)
 
     implementation(libs.ktx.serializationJson)
 
@@ -243,12 +264,10 @@ dependencies {
     implementation(libs.miuix.blur)
     implementation(libs.miuix.preference)
     implementation(libs.miuix.icons)
+    implementation(libs.miuix.navigation)
     implementation(libs.shapes)
     implementation(libs.capsule)
     implementation(libs.backdrop)
-    // haze
-    implementation(libs.haze)
-    implementation(libs.haze.materials)
 
     // okhttp
     implementation(platform(libs.okhttp.bom))

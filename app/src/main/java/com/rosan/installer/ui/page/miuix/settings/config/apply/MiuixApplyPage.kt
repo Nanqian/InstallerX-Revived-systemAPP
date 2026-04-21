@@ -57,9 +57,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavController
 import com.rosan.installer.R
 import com.rosan.installer.ui.icons.AppIcons
+import com.rosan.installer.ui.navigation.LocalNavigator
 import com.rosan.installer.ui.page.main.settings.config.apply.ApplyViewAction
 import com.rosan.installer.ui.page.main.settings.config.apply.ApplyViewApp
 import com.rosan.installer.ui.page.main.settings.config.apply.ApplyViewModel
@@ -68,10 +68,8 @@ import com.rosan.installer.ui.page.main.settings.config.apply.ViewContent
 import com.rosan.installer.ui.page.miuix.widgets.MiuixBackButton
 import com.rosan.installer.ui.page.miuix.widgets.MiuixDropdown
 import com.rosan.installer.ui.theme.getMiuixAppBarColor
-import com.rosan.installer.ui.theme.installerHazeEffect
-import com.rosan.installer.ui.theme.rememberMiuixHazeStyle
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
+import com.rosan.installer.ui.theme.installerMiuixBlurEffect
+import com.rosan.installer.ui.theme.rememberMiuixBlurBackdrop
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -91,6 +89,7 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.More
@@ -101,19 +100,15 @@ import top.yukonga.miuix.kmp.window.WindowListPopup
 
 @Composable
 fun MiuixApplyPage(
-    navController: NavController,
     id: Long,
-    viewModel: ApplyViewModel = koinViewModel {
-        parametersOf(id)
-    }
+    useBlur: Boolean,
+    viewModel: ApplyViewModel = koinViewModel { parametersOf(id) }
 ) {
+    val navigator = LocalNavigator.current
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
     val scrollBehavior = MiuixScrollBehavior()
-
-    val hazeState = if (uiState.useBlur) remember { HazeState() } else null
-    val hazeStyle = rememberMiuixHazeStyle()
 
     val showFloating by remember {
         derivedStateOf {
@@ -124,12 +119,14 @@ fun MiuixApplyPage(
     val layoutDirection = LocalLayoutDirection.current
     val horizontalSafeInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal).asPaddingValues()
 
+    val topBarBackdrop = rememberMiuixBlurBackdrop(useBlur)
+
     Scaffold(
         topBar = {
             Column(
                 modifier = Modifier
-                    .installerHazeEffect(hazeState, hazeStyle)
-                    .background(hazeState.getMiuixAppBarColor())
+                    .installerMiuixBlurEffect(topBarBackdrop)
+                    .background(topBarBackdrop.getMiuixAppBarColor())
             ) {
                 TopAppBar(
                     color = Color.Transparent,
@@ -138,7 +135,7 @@ fun MiuixApplyPage(
                     navigationIcon = {
                         MiuixBackButton(
                             icon = MiuixIcons.Regular.Close,
-                            onClick = { navController.navigateUp() })
+                            onClick = { navigator.pop() })
                     },
                     actions = { TopAppBarActions(viewModel = viewModel, uiState = uiState) }
                 )
@@ -147,7 +144,9 @@ fun MiuixApplyPage(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(
-                            start = 16.dp + horizontalSafeInsets.calculateStartPadding(layoutDirection),
+                            start = 16.dp + horizontalSafeInsets.calculateStartPadding(
+                                layoutDirection
+                            ),
                             end = 16.dp + horizontalSafeInsets.calculateEndPadding(layoutDirection)
                         )
                         .padding(bottom = 8.dp),
@@ -175,7 +174,9 @@ fun MiuixApplyPage(
                 Box(
                     modifier = Modifier
                         .padding(
-                            start = 6.dp + horizontalSafeInsets.calculateStartPadding(layoutDirection),
+                            start = 6.dp + horizontalSafeInsets.calculateStartPadding(
+                                layoutDirection
+                            ),
                             end = 6.dp + horizontalSafeInsets.calculateEndPadding(layoutDirection)
                         )
                         .padding(bottom = 6.dp)
@@ -262,7 +263,7 @@ fun MiuixApplyPage(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .then(hazeState?.let { Modifier.hazeSource(it) } ?: Modifier)
+                                .then(topBarBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier)
                                 .scrollEndHaptic()
                                 .overScrollVertical()
                                 .nestedScroll(scrollBehavior.nestedScrollConnection),

@@ -9,9 +9,12 @@ import com.rosan.installer.data.settings.local.datastore.AppDataStore
 import com.rosan.installer.domain.device.provider.DeviceCapabilityProvider
 import com.rosan.installer.domain.settings.model.AppPreferences
 import com.rosan.installer.domain.settings.model.Authorizer
+import com.rosan.installer.domain.settings.model.BiometricAuthMode
+import com.rosan.installer.domain.settings.model.GithubUpdateChannel
 import com.rosan.installer.domain.settings.model.HttpProfile
-import com.rosan.installer.domain.settings.model.InstallMode
 import com.rosan.installer.domain.settings.model.NamedPackage
+import com.rosan.installer.domain.settings.model.PredictiveBackAnimation
+import com.rosan.installer.domain.settings.model.PredictiveBackExitDirection
 import com.rosan.installer.domain.settings.model.RootMode
 import com.rosan.installer.domain.settings.model.SharedUid
 import com.rosan.installer.domain.settings.repository.AppSettingsRepository
@@ -43,7 +46,6 @@ class AppSettingsRepositoryImpl(
             ),
             appDataStore.getBoolean(AppDataStore.ALWAYS_USE_ROOT_IN_SYSTEM, false),
             appDataStore.getString(AppDataStore.CUSTOMIZE_AUTHORIZER, ""),
-            appDataStore.getString(AppDataStore.INSTALL_MODE, InstallMode.Dialog.value),
             appDataStore.getBoolean(AppDataStore.DIALOG_SHOW_EXTENDED_MENU, false),
             appDataStore.getBoolean(AppDataStore.DIALOG_SHOW_INTELLIGENT_SUGGESTION, true),
             appDataStore.getBoolean(AppDataStore.DIALOG_DISABLE_NOTIFICATION_ON_DISMISS, false),
@@ -54,9 +56,13 @@ class AppSettingsRepositoryImpl(
             appDataStore.getBoolean(AppDataStore.DIALOG_SDK_COMPARE_MULTI_LINE, false),
             appDataStore.getBoolean(AppDataStore.DIALOG_SHOW_OPPO_SPECIAL, false),
             appDataStore.getBoolean(AppDataStore.UI_EXPRESSIVE_SWITCH, true),
-            appDataStore.getBoolean(AppDataStore.INSTALLER_REQUIRE_BIOMETRIC_AUTH, false),
+            appDataStore.getString(AppDataStore.INSTALLER_REQUIRE_BIOMETRIC_AUTH, BiometricAuthMode.Disable.value),
             appDataStore.getBoolean(AppDataStore.UNINSTALLER_REQUIRE_BIOMETRIC_AUTH, false),
             appDataStore.getBoolean(AppDataStore.SHOW_LIVE_ACTIVITY, false),
+            appDataStore.getBoolean(AppDataStore.SHOW_MI_ISLAND, false),
+            appDataStore.getBoolean(AppDataStore.SHOW_MI_ISLAND_BYPASS_RESTRICTION, false),
+            appDataStore.getBoolean(AppDataStore.SHOW_MI_ISLAND_OUTER_GLOW, true),
+            appDataStore.getInt(AppDataStore.SHOW_MI_ISLAND_BLOCKING_INTERVAL_MS, 100),
             appDataStore.getBoolean(AppDataStore.AUTO_LOCK_INSTALLER, false),
             appDataStore.getBoolean(AppDataStore.DIALOG_AUTO_SILENT_INSTALL, false),
             appDataStore.getBoolean(AppDataStore.UI_USE_MIUIX, false),
@@ -64,7 +70,10 @@ class AppSettingsRepositoryImpl(
             appDataStore.getBoolean(AppDataStore.SHOW_LAUNCHER_ICON, true),
 
             // Lists
-            appDataStore.getNamedPackageList(AppDataStore.MANAGED_INSTALLER_PACKAGES_LIST),
+            appDataStore.getNamedPackageList(
+                AppDataStore.MANAGED_INSTALLER_PACKAGES_LIST,
+                AppDataStore.DEFAULT_MANAGED_INSTALLER_PACKAGES
+            ),
             appDataStore.getNamedPackageList(AppDataStore.MANAGED_BLACKLIST_PACKAGES_LIST),
             appDataStore.getSharedUidList(AppDataStore.MANAGED_SHARED_USER_ID_BLACKLIST),
             appDataStore.getNamedPackageList(AppDataStore.MANAGED_SHARED_USER_ID_EXEMPTED_PACKAGES_LIST),
@@ -72,15 +81,17 @@ class AppSettingsRepositoryImpl(
             appDataStore.getInt(AppDataStore.UNINSTALL_FLAGS, 0),
 
             // Lab settings
+            appDataStore.getString(AppDataStore.GITHUB_UPDATE_CHANNEL, GithubUpdateChannel.OFFICIAL.name),
+            appDataStore.getString(AppDataStore.CUSTOM_GITHUB_PROXY_URL, ""),
             appDataStore.getBoolean(AppDataStore.LAB_ENABLE_MODULE_FLASH, false),
             appDataStore.getBoolean(AppDataStore.LAB_MODULE_FLASH_SHOW_ART, true),
             appDataStore.getString(AppDataStore.LAB_ROOT_IMPLEMENTATION, "Default"),
-            appDataStore.getBoolean(AppDataStore.SHOW_MI_ISLAND, false),
-            appDataStore.getInt(AppDataStore.SHOW_MI_ISLAND_BLOCKING_INTERVAL_MS, 100),
             appDataStore.getString(AppDataStore.LAB_HTTP_PROFILE, "Default"),
             appDataStore.getBoolean(AppDataStore.LAB_HTTP_SAVE_FILE, false),
             appDataStore.getBoolean(AppDataStore.LAB_SET_INSTALL_REQUESTER, false),
             appDataStore.getBoolean(AppDataStore.LAB_TAP_ICON_TO_SHARE, false),
+            appDataStore.getBoolean(AppDataStore.LAB_SHOW_FILE_PATH, false),
+            appDataStore.getBoolean(AppDataStore.LAB_SHOW_INSTALL_INITIATOR, false),
             appDataStore.getBoolean(AppDataStore.ENABLE_FILE_LOGGING, true),
 
             // Theme settings
@@ -93,7 +104,9 @@ class AppSettingsRepositoryImpl(
             appDataStore.getInt(AppDataStore.THEME_SEED_COLOR, PresetColors.first().color.toArgb()),
             appDataStore.getBoolean(AppDataStore.UI_DYN_COLOR_FOLLOW_PKG_ICON, false),
             appDataStore.getBoolean(AppDataStore.LIVE_ACTIVITY_DYN_COLOR_FOLLOW_PKG_ICON, false),
-            appDataStore.getBoolean(AppDataStore.UI_USE_BLUR, Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            appDataStore.getBoolean(AppDataStore.UI_USE_BLUR, Build.VERSION.SDK_INT >= Build.VERSION_CODES.S),
+            appDataStore.getString(AppDataStore.PREDICTIVE_BACK_ANIMATION, PredictiveBackAnimation.Scale.value),
+            appDataStore.getString(AppDataStore.PREDICTIVE_BACK_EXIT_DIRECTION, PredictiveBackExitDirection.ALWAYS_RIGHT.value)
         )
     ) { values: Array<Any?> ->
         var idx = 0
@@ -103,15 +116,12 @@ class AppSettingsRepositoryImpl(
         val authorizer = Authorizer.entries.find { it.value == authorizerStr } ?: Authorizer.Global
         val alwaysUseRootInSystem = values[idx++] as Boolean
         val customizeAuthorizer = values[idx++] as String
-        val installModeStr = values[idx++] as String
-        val installMode = InstallMode.entries.find { it.value == installModeStr } ?: InstallMode.Global
 
         @Suppress("UNCHECKED_CAST")
         AppPreferences(
             authorizer = authorizer,
             alwaysUseRootInSystem = alwaysUseRootInSystem,
             customizeAuthorizer = customizeAuthorizer,
-            installMode = installMode,
             showDialogInstallExtendedMenu = values[idx++] as Boolean,
             showSmartSuggestion = values[idx++] as Boolean,
             disableNotificationForDialogInstall = values[idx++] as Boolean,
@@ -122,9 +132,16 @@ class AppSettingsRepositoryImpl(
             sdkCompareInMultiLine = values[idx++] as Boolean,
             showOPPOSpecial = values[idx++] as Boolean,
             showExpressiveUI = values[idx++] as Boolean,
-            installerRequireBiometricAuth = values[idx++] as Boolean,
+            installerRequireBiometricAuth = run {
+                val value = values[idx++] as String
+                BiometricAuthMode.entries.find { it.value == value } ?: BiometricAuthMode.FollowConfig
+            },
             uninstallerRequireBiometricAuth = values[idx++] as Boolean,
             showLiveActivity = values[idx++] as Boolean,
+            useMiIsland = values[idx++] as Boolean,
+            useMiIslandBypassRestriction = values[idx++] as Boolean,
+            useMiIslandOuterGlow = values[idx++] as Boolean,
+            useMiIslandBlockingIntervalMs = values[idx++] as Int,
             autoLockInstaller = values[idx++] as Boolean,
             autoSilentInstall = values[idx++] as Boolean,
             showMiuixUI = values[idx++] as Boolean,
@@ -135,19 +152,26 @@ class AppSettingsRepositoryImpl(
             managedBlacklistPackages = values[idx++] as List<NamedPackage>,
             managedSharedUserIdBlacklist = values[idx++] as List<SharedUid>,
             managedSharedUserIdExemptedPackages = values[idx++] as List<NamedPackage>,
-
+            // Uninstaller
             uninstallFlags = values[idx++] as Int,
+            // Updater
+            githubUpdateChannel = run {
+                val value = values[idx++] as String
+                runCatching { GithubUpdateChannel.valueOf(value) }.getOrDefault(GithubUpdateChannel.OFFICIAL)
+            },
+            customGithubProxyUrl = values[idx++] as String,
+            // Lab
             labRootEnableModuleFlash = values[idx++] as Boolean,
             labRootShowModuleArt = values[idx++] as Boolean,
             labRootMode = RootMode.fromString(values[idx++] as String),
-            labUseMiIsland = values[idx++] as Boolean,
-            labUseMiIslandBlockingIntervalMs = values[idx++] as Int,
             labHttpProfile = HttpProfile.fromString(values[idx++] as String),
             labHttpSaveFile = values[idx++] as Boolean,
             labSetInstallRequester = values[idx++] as Boolean,
             labTapIconToShare = values[idx++] as Boolean,
+            labShowFilePath = values[idx++] as Boolean,
+            labShowInstallInitiator = values[idx++] as Boolean,
             enableFileLogging = values[idx++] as Boolean,
-
+            // UI State
             themeMode = runCatching { ThemeMode.valueOf(values[idx++] as String) }.getOrDefault(ThemeMode.SYSTEM),
             paletteStyle = runCatching { PaletteStyle.valueOf(values[idx++] as String) }.getOrDefault(PaletteStyle.TonalSpot),
             colorSpec = runCatching { ThemeColorSpec.valueOf(values[idx++] as String) }.getOrDefault(ThemeColorSpec.SPEC_2025),
@@ -157,7 +181,17 @@ class AppSettingsRepositoryImpl(
             seedColorInt = values[idx++] as Int,
             useDynColorFollowPkgIcon = values[idx++] as Boolean,
             useDynColorFollowPkgIconForLiveActivity = values[idx++] as Boolean,
-            useBlur = values[idx++] as Boolean
+            useBlur = values[idx++] as Boolean,
+            predictiveBackAnimation = run {
+                val value = values[idx++] as String
+                PredictiveBackAnimation.entries.find { it.value == value }
+                    ?: PredictiveBackAnimation.Scale
+            },
+            predictiveBackExitDirection = run {
+                val value = values[idx++] as String
+                PredictiveBackExitDirection.entries.find { it.value == value }
+                    ?: PredictiveBackExitDirection.ALWAYS_RIGHT
+            }
         )
     }.shareIn(
         scope = appScope,
@@ -191,7 +225,12 @@ class AppSettingsRepositoryImpl(
     override fun getNamedPackageList(
         setting: NamedPackageListSetting,
         default: List<NamedPackage>
-    ): Flow<List<NamedPackage>> = appDataStore.getNamedPackageList(namedPackageListKey(setting), default)
+    ): Flow<List<NamedPackage>> {
+        val finalDefault = if (setting == NamedPackageListSetting.ManagedInstallerPackages && default.isEmpty()) {
+            AppDataStore.DEFAULT_MANAGED_INSTALLER_PACKAGES
+        } else default
+        return appDataStore.getNamedPackageList(namedPackageListKey(setting), finalDefault)
+    }
 
     override suspend fun putSharedUidList(setting: SharedUidListSetting, uids: List<SharedUid>) =
         appDataStore.putSharedUidList(sharedUidListKey(setting), uids)
@@ -211,10 +250,14 @@ class AppSettingsRepositoryImpl(
             StringSetting.ThemeColorSpec -> AppDataStore.THEME_COLOR_SPEC
             StringSetting.Authorizer -> AppDataStore.AUTHORIZER
             StringSetting.CustomizeAuthorizer -> AppDataStore.CUSTOMIZE_AUTHORIZER
-            StringSetting.InstallMode -> AppDataStore.INSTALL_MODE
             StringSetting.ApplyOrderType -> AppDataStore.APPLY_ORDER_TYPE
             StringSetting.LabRootImplementation -> AppDataStore.LAB_ROOT_IMPLEMENTATION
             StringSetting.LabHttpProfile -> AppDataStore.LAB_HTTP_PROFILE
+            StringSetting.PredictiveBackAnimation -> AppDataStore.PREDICTIVE_BACK_ANIMATION
+            StringSetting.PredictiveBackExitDirection -> AppDataStore.PREDICTIVE_BACK_EXIT_DIRECTION
+            StringSetting.GithubUpdateChannel -> AppDataStore.GITHUB_UPDATE_CHANNEL
+            StringSetting.CustomGithubProxyUrl -> AppDataStore.CUSTOM_GITHUB_PROXY_URL
+            StringSetting.InstallerBiometricAuthMode -> AppDataStore.INSTALLER_REQUIRE_BIOMETRIC_AUTH
         }
 
     private fun intKey(setting: IntSetting): Preferences.Key<Int> =
@@ -238,8 +281,9 @@ class AppSettingsRepositoryImpl(
             BooleanSetting.LiveActivityDynColorFollowPkgIcon -> AppDataStore.LIVE_ACTIVITY_DYN_COLOR_FOLLOW_PKG_ICON
             BooleanSetting.ShowLiveActivity -> AppDataStore.SHOW_LIVE_ACTIVITY
             BooleanSetting.ShowMiIsland -> AppDataStore.SHOW_MI_ISLAND
+            BooleanSetting.ShowMiIslandBypassRestriction -> AppDataStore.SHOW_MI_ISLAND_BYPASS_RESTRICTION
+            BooleanSetting.ShowMiIslandOuterGlow -> AppDataStore.SHOW_MI_ISLAND_OUTER_GLOW
             BooleanSetting.AlwaysUseRootInSystem -> AppDataStore.ALWAYS_USE_ROOT_IN_SYSTEM
-            BooleanSetting.InstallerRequireBiometricAuth -> AppDataStore.INSTALLER_REQUIRE_BIOMETRIC_AUTH
             BooleanSetting.UninstallerRequireBiometricAuth -> AppDataStore.UNINSTALLER_REQUIRE_BIOMETRIC_AUTH
             BooleanSetting.ShowLauncherIcon -> AppDataStore.SHOW_LAUNCHER_ICON
             BooleanSetting.PreferSystemIconForInstall -> AppDataStore.PREFER_SYSTEM_ICON_FOR_INSTALL
@@ -262,6 +306,8 @@ class AppSettingsRepositoryImpl(
             BooleanSetting.LabHttpSaveFile -> AppDataStore.LAB_HTTP_SAVE_FILE
             BooleanSetting.LabSetInstallRequester -> AppDataStore.LAB_SET_INSTALL_REQUESTER
             BooleanSetting.LabTapIconToShare -> AppDataStore.LAB_TAP_ICON_TO_SHARE
+            BooleanSetting.LabShowFilePath -> AppDataStore.LAB_SHOW_FILE_PATH
+            BooleanSetting.LabShowInstallInitiator -> AppDataStore.LAB_SHOW_INSTALL_INITIATOR
             BooleanSetting.EnableFileLogging -> AppDataStore.ENABLE_FILE_LOGGING
         }
 

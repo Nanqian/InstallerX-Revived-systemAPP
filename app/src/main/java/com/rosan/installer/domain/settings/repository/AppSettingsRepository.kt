@@ -13,10 +13,14 @@ enum class StringSetting {
     ThemeColorSpec,
     Authorizer,
     CustomizeAuthorizer,
-    InstallMode,
     ApplyOrderType,
     LabRootImplementation,
-    LabHttpProfile
+    LabHttpProfile,
+    PredictiveBackAnimation,
+    PredictiveBackExitDirection,
+    GithubUpdateChannel,
+    CustomGithubProxyUrl,
+    InstallerBiometricAuthMode
 }
 
 enum class IntSetting {
@@ -38,8 +42,9 @@ enum class BooleanSetting {
     LiveActivityDynColorFollowPkgIcon,
     ShowLiveActivity,
     ShowMiIsland,
+    ShowMiIslandBypassRestriction,
+    ShowMiIslandOuterGlow,
     AlwaysUseRootInSystem,
-    InstallerRequireBiometricAuth,
     UninstallerRequireBiometricAuth,
     ShowLauncherIcon,
     PreferSystemIconForInstall,
@@ -62,6 +67,8 @@ enum class BooleanSetting {
     LabHttpSaveFile,
     LabSetInstallRequester,
     LabTapIconToShare,
+    LabShowFilePath,
+    LabShowInstallInitiator,
     EnableFileLogging
 }
 

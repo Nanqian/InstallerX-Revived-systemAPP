@@ -6,6 +6,7 @@ import com.rosan.installer.core.env.DeviceConfig
 import com.rosan.installer.data.engine.parser.FilterType
 import com.rosan.installer.domain.engine.model.AppEntity
 import com.rosan.installer.domain.engine.model.DataType
+import com.rosan.installer.domain.engine.model.SessionMode
 import com.rosan.installer.domain.session.model.SelectInstallEntity
 import com.rosan.installer.util.convertLegacyLanguageCode
 import timber.log.Timber
@@ -20,32 +21,51 @@ class SelectOptimalSplitsUseCase {
         splitChooseAll: Boolean,
         apkChooseAll: Boolean,
         entities: List<AppEntity>,
-        sessionType: DataType
+        sessionType: DataType,
+        sessionMode: SessionMode // Added to correctly identify single-app contexts
     ): List<SelectInstallEntity> {
-        Timber.d("SelectionStrategy: Starting selection for ${entities.size} entities. ContainerType: $sessionType")
 
-        val isBatchMode = sessionType == DataType.MULTI_APK ||
-                sessionType == DataType.MULTI_APK_ZIP ||
-                sessionType == DataType.MIXED_MODULE_APK ||
-                sessionType == DataType.MIXED_MODULE_ZIP
+        // Demote batch session types to single-app types if only one app package is present.
+        // This prevents incorrect selection logic where the only app gets deselected.
+        val effectiveSessionType = if (sessionMode == SessionMode.Single &&
+            (sessionType == DataType.MULTI_APK_ZIP ||
+                    sessionType == DataType.MULTI_APK ||
+                    sessionType == DataType.MIXED_MODULE_APK ||
+                    sessionType == DataType.MIXED_MODULE_ZIP)
+        ) {
+            val hasSplits = entities.any { it is AppEntity.SplitEntity }
+            if (hasSplits) DataType.APKS else DataType.APK
+        } else {
+            sessionType
+        }
 
-        // 1. Mixed Modules
-        if (sessionType == DataType.MIXED_MODULE_APK || sessionType == DataType.MIXED_MODULE_ZIP) {
+        Timber.d("SelectionStrategy: Starting selection for ${entities.size} entities. Original Type: $sessionType, Effective Type: $effectiveSessionType, SessionMode: $sessionMode")
+
+        // Use the authoritative session mode passed from the repository instead of guessing by container type
+        val isBatchMode = sessionMode == SessionMode.Batch
+
+        // Extract bases early to determine the effective choice logic
+        val bases = entities.filterIsInstance<AppEntity.BaseEntity>()
+
+        // Use isBatchMode to determine if we should respect apkChooseAll.
+        // If it's a single app session, we implicitly treat it as true to ensure the primary app is selected.
+        val effectiveApkChooseAll = if (isBatchMode) apkChooseAll else true
+
+        // 1. Mixed Modules (Now using the demoted effectiveSessionType)
+        if (effectiveSessionType == DataType.MIXED_MODULE_APK || effectiveSessionType == DataType.MIXED_MODULE_ZIP) {
             return entities.map {
-                val isSelected = if (it is AppEntity.BaseEntity) apkChooseAll else false
+                val isSelected = if (it is AppEntity.BaseEntity) effectiveApkChooseAll else false
                 SelectInstallEntity(it, selected = isSelected)
             }
         }
 
-        val bases = entities.filterIsInstance<AppEntity.BaseEntity>()
-
-        // 2. Multi-App Mode
-        val isMultiAppMode = (sessionType == DataType.MULTI_APK || sessionType == DataType.MULTI_APK_ZIP)
+        // 2. Multi-App Mode (Now using the demoted effectiveSessionType)
+        val isMultiAppMode = (effectiveSessionType == DataType.MULTI_APK || effectiveSessionType == DataType.MULTI_APK_ZIP)
         if (isMultiAppMode && bases.size > 1) {
             val bestBase = findBestBase(bases)
             return entities.map { entity ->
                 val isSelected = if (entity is AppEntity.BaseEntity) {
-                    if (apkChooseAll) true else (entity == bestBase)
+                    if (effectiveApkChooseAll) true else (entity == bestBase)
                 } else false
                 SelectInstallEntity(entity, selected = isSelected)
             }
@@ -57,6 +77,7 @@ class SelectOptimalSplitsUseCase {
         }
 
         // 4. Optimal Splits Calculation
+        // This is where downgraded APK/APKS will smoothly fall into.
         val allSplits = entities.filterIsInstance<AppEntity.SplitEntity>()
         val selectedSplits = if (splitChooseAll) {
             allSplits.toSet()
@@ -66,7 +87,8 @@ class SelectOptimalSplitsUseCase {
 
         return entities.map { entity ->
             val isSelected = when (entity) {
-                is AppEntity.BaseEntity -> if (isBatchMode) apkChooseAll else true
+                // Apply the corrected effective choice flag here as well
+                is AppEntity.BaseEntity -> if (isBatchMode) effectiveApkChooseAll else true
                 is AppEntity.DexMetadataEntity -> true
                 is AppEntity.SplitEntity -> entity in selectedSplits
                 is AppEntity.ModuleEntity -> true

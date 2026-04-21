@@ -9,11 +9,13 @@ import com.rosan.installer.ui.page.main.settings.config.all.AllViewModel
 import com.rosan.installer.ui.page.main.settings.config.apply.ApplyViewModel
 import com.rosan.installer.ui.page.main.settings.config.edit.EditViewModel
 import com.rosan.installer.ui.page.main.settings.preferred.PreferredViewModel
-import com.rosan.installer.ui.page.main.settings.preferred.subpage.about.AboutViewModel
-import com.rosan.installer.ui.page.main.settings.preferred.subpage.installer.InstallerSettingsViewModel
-import com.rosan.installer.ui.page.main.settings.preferred.subpage.lab.LabSettingsViewModel
-import com.rosan.installer.ui.page.main.settings.preferred.subpage.theme.ThemeSettingsViewModel
-import com.rosan.installer.ui.page.main.settings.preferred.subpage.uninstaller.UninstallerSettingsViewModel
+import com.rosan.installer.ui.page.main.settings.preferred.about.AboutViewModel
+import com.rosan.installer.ui.page.main.settings.preferred.installer.InstallerSettingsViewModel
+import com.rosan.installer.ui.page.main.settings.preferred.installer.dialog.DialogSettingsViewModel
+import com.rosan.installer.ui.page.main.settings.preferred.installer.notification.NotificationSettingsViewModel
+import com.rosan.installer.ui.page.main.settings.preferred.lab.LabSettingsViewModel
+import com.rosan.installer.ui.page.main.settings.preferred.theme.ThemeSettingsViewModel
+import com.rosan.installer.ui.page.main.settings.preferred.uninstaller.UninstallerSettingsViewModel
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
@@ -24,6 +26,8 @@ val viewModelModule = module {
     viewModelOf(::PreferredViewModel)
     viewModelOf(::ThemeSettingsViewModel)
     viewModelOf(::InstallerSettingsViewModel)
+    viewModelOf(::DialogSettingsViewModel)
+    viewModelOf(::NotificationSettingsViewModel)
     viewModelOf(::UninstallerSettingsViewModel)
     viewModelOf(::LabSettingsViewModel)
     viewModelOf(::AboutViewModel)
@@ -31,6 +35,7 @@ val viewModelModule = module {
     viewModel { (session: InstallerSessionRepository) ->
         InstallerViewModel(
             session = session,
+            get(),
             get(),
             get(),
             get(),

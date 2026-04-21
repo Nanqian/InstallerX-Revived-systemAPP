@@ -161,7 +161,7 @@
     <string name="config_package_source_store">應用程式商店</string>
     <string name="config_package_source_local_file">本機檔案</string>
     <string name="config_package_source_downloaded_file">已下載的檔案</string>
-    <string name="config_declare_installer">宣告安裝者 (安裝來源)</string>
+    <string name="config_declare_installer">安裝來源</string>
     <string name="config_installer">安裝者 (套件名稱)</string>
     <string name="config_customize_user">設定使用者</string>
     <string name="config_customize_user_desc">手動設定為目標使用者安裝應用程式</string>
@@ -622,6 +622,12 @@
     <string name="lab_http_profile_secure">僅允許安全連線（HTTPS）</string>
     <string name="lab_http_profile_local">允許本地明文連線（Localhost）</string>
     <string name="lab_http_profile_all">允許所有（不安全）</string>
+    <string name="lab_update_github_proxy">GitHub 更新通道</string>
+    <string name="lab_update_github_proxy_official">官方</string>
+    <string name="lab_update_github_proxy_7ed">7ED 代理</string>
+    <string name="lab_update_github_proxy_custom">自定義 GHProxy</string>
+    <string name="lab_update_github_proxy_url">自定義 URL</string>
+    <string name="lab_update_github_proxy_url_desc">代理連結</string>
     <string name="lab_unstable_features">不穩定功能</string>
     <string name="lab_set_install_requester">設定安裝請求方</string>
     <string name="lab_set_install_requester_desc">在安裝工作階段中填入 OriginatingUid 欄位，以記錄發起安裝的應用程式，並符合系統套件管理器的行為</string>
@@ -703,6 +709,5 @@
     <string name="config_apk_choose_all">默認選擇所有 APK</string>
     <string name="config_apk_choose_all_desc">單次安裝會話含有多個 APK 檔案時預設勾選所有 APK 文件</string>
     <string name="lab_mi_island">小米超級島</string>
-    <string name="lab_mi_island_desc">覆蓋全域通知樣式。 僅當應用授權器設定為 Shizuku 時可繞過系統簽名限制；Root 使用者在手動關閉系統簽名驗證後可直接開啟</string>
     <string name="app_version_info_format">%1$s %2$s %3$s (%4$s)</string>
 </resources>

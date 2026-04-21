@@ -2,12 +2,9 @@
 // Copyright (C) 2023-2026 iamr0s, InstallerX Revived contributors
 package com.rosan.installer.ui.page.main.installer
 
-import android.content.Context
-import android.content.Intent
 import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rosan.installer.R
@@ -15,9 +12,11 @@ import com.rosan.installer.data.engine.executor.PackageManagerUtil
 import com.rosan.installer.domain.engine.model.AppEntity
 import com.rosan.installer.domain.engine.model.DataType
 import com.rosan.installer.domain.engine.model.PackageAnalysisResult
+import com.rosan.installer.domain.engine.model.SessionMode
 import com.rosan.installer.domain.engine.model.sourcePath
 import com.rosan.installer.domain.engine.usecase.GetAppIconColorUseCase
 import com.rosan.installer.domain.engine.usecase.GetAppIconUseCase
+import com.rosan.installer.domain.engine.usecase.GetAppLabelUseCase
 import com.rosan.installer.domain.privileged.usecase.GetAvailableUsersUseCase
 import com.rosan.installer.domain.session.model.ProgressEntity
 import com.rosan.installer.domain.session.model.SelectInstallEntity
@@ -25,10 +24,10 @@ import com.rosan.installer.domain.session.repository.InstallerSessionRepository
 import com.rosan.installer.domain.settings.model.Authorizer
 import com.rosan.installer.domain.settings.model.ConfigModel
 import com.rosan.installer.domain.settings.model.InstallMode
+import com.rosan.installer.domain.settings.model.InstallerMode
 import com.rosan.installer.domain.settings.repository.AppSettingsRepository
 import com.rosan.installer.domain.settings.repository.BooleanSetting
 import com.rosan.installer.util.addFlag
-import com.rosan.installer.util.getErrorMessage
 import com.rosan.installer.util.hasFlag
 import com.rosan.installer.util.removeFlag
 import kotlinx.coroutines.CancellationException
@@ -46,10 +45,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
 import timber.log.Timber
-import java.io.File
 
 class InstallerViewModel(
     private var session: InstallerSessionRepository,
@@ -57,8 +53,8 @@ class InstallerViewModel(
     private val getAvailableUsers: GetAvailableUsersUseCase,
     private val getAppIcon: GetAppIconUseCase,
     private val getAppIconColor: GetAppIconColorUseCase,
-) : ViewModel(), KoinComponent {
-    private val context by inject<Context>()
+    private val getAppLabel: GetAppLabelUseCase
+) : ViewModel() {
 
     // Event channel for one-off side effects (e.g. Toasts)
     private val _uiEvents = MutableSharedFlow<InstallerViewEvent>(
@@ -97,13 +93,16 @@ class InstallerViewModel(
                 sdkCompareInMultiLine = prefs.sdkCompareInMultiLine,
                 showOPPOSpecial = local.tempShowOPPOSpecial ?: prefs.showOPPOSpecial,
                 autoSilentInstall = prefs.autoSilentInstall,
-                labTapIconToShare = prefs.labTapIconToShare
+                labTapIconToShare = prefs.labTapIconToShare,
+                labShowFilePath = local.tempLabShowFilePath ?: prefs.labShowFilePath,
+                labShowInstallInitiator = local.tempLabShowInstallInitiator ?: prefs.labShowInstallInitiator
             ),
+            rootMode = prefs.labRootMode,
             managedInstallerPackages = prefs.managedInstallerPackages,
         )
     }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = _localState.value
     )
 
@@ -179,8 +178,11 @@ class InstallerViewModel(
             is InstallerViewAction.HideMiuixPermissionList -> _localState.update { it.copy(showMiuixPermissionList = false) }
 
             is InstallerViewAction.SetTempShowOPPOSpecial -> _localState.update { it.copy(tempShowOPPOSpecial = action.show) }
+            is InstallerViewAction.SetTempLabShowFilePath -> _localState.update { it.copy(tempLabShowFilePath = action.show) }
+            is InstallerViewAction.SetTempLabShowInstallInitiator -> _localState.update { it.copy(tempLabShowInstallInitiator = action.show) }
             is InstallerViewAction.ToggleSelection -> toggleSelection(action.packageName, action.entity, action.isMultiSelect)
             is InstallerViewAction.ToggleUninstallFlag -> toggleUninstallFlag(action.flag, action.enable)
+            is InstallerViewAction.SetInstallerMode -> selectInstallerMode(action.mode)
             is InstallerViewAction.SetInstaller -> selectInstaller(action.installer)
             is InstallerViewAction.SetTargetUser -> selectTargetUser(action.userId)
             is InstallerViewAction.ApproveSession -> session.approveConfirmation(action.sessionId, action.granted)
@@ -202,15 +204,10 @@ class InstallerViewModel(
         ProgressEntity.InstallAnalysedFailed -> InstallerStage.AnalyseFailed
 
         ProgressEntity.InstallAnalysedSuccess -> {
-            val containerType = currentAnalysisResults.firstOrNull()?.appEntities?.firstOrNull()?.app?.sourceType
+            val isBatchMode = currentAnalysisResults.size > 1 ||
+                    currentAnalysisResults.any { it.sessionMode == SessionMode.Batch }
 
-            val isMultiAppMode = currentAnalysisResults.size > 1 ||
-                    containerType == DataType.MULTI_APK ||
-                    containerType == DataType.MULTI_APK_ZIP ||
-                    containerType == DataType.MIXED_MODULE_APK ||
-                    containerType == DataType.MIXED_MODULE_ZIP
-
-            if (isMultiAppMode) InstallerStage.InstallChoice else InstallerStage.InstallPrepare
+            if (isBatchMode) InstallerStage.InstallChoice else InstallerStage.InstallPrepare
         }
 
         is ProgressEntity.Installing -> {
@@ -240,8 +237,18 @@ class InstallerViewModel(
 
         ProgressEntity.InstallConfirming -> {
             val details = session.confirmationDetails.value
-            if (details != null) InstallerStage.InstallConfirm(details.appLabel, details.appIcon, details.sessionId)
-            else InstallerStage.ResolveFailed
+            if (details != null) {
+                InstallerStage.InstallConfirm(
+                    appLabel = details.appLabel,
+                    appIcon = details.appIcon,
+                    sessionId = details.sessionId,
+                    isSelfSession = details.isSelfSession,
+                    isOwnershipConflict = details.isOwnershipConflict,
+                    sourceAppLabel = details.sourceAppLabel
+                )
+            } else {
+                InstallerStage.ResolveFailed
+            }
         }
 
         ProgressEntity.Uninstalling -> if (isRetrying) InstallerStage.InstallRetryDowngradeUsingUninstall else InstallerStage.Uninstalling
@@ -258,13 +265,16 @@ class InstallerViewModel(
 
         _localState.update {
             it.copy(
-                config = session.config, // Synchronize the entire ConfigModel to UI state
+                config = session.config,   // Synchronize the entire ConfigModel to UI state
                 currentPackageName = null,
+                initiatorAppLabel = null,  // Reset label on new session
                 analysisResults = session.analysisResults,
                 displayIcons = it.displayIcons.filterKeys { key -> key in session.analysisResults.map { res -> res.packageName } },
                 error = session.error
             )
         }
+
+        fetchInitiatorAppLabel(session.config.initiatorPackageName)
 
         collectRepoJob?.cancel()
         autoInstallJob?.cancel()
@@ -358,29 +368,32 @@ class InstallerViewModel(
 
                 val oldPackageName = _localState.value.currentPackageName
 
+                // 1. 纯粹的状态更新，里面绝对不能有 viewModelScope.launch 或任何副作用
                 _localState.update { currentState ->
-                    // Prevent UI flickering by retaining old metadata during uninstallation
                     val mergedUninstallInfo = uninstallInfo?.let { incoming ->
                         val current = currentState.uiUninstallInfo
                         if (current != null && incoming.packageName == current.packageName && incoming.appLabel == null) {
-                            // The app is being uninstalled and the system can no longer provide the label,
-                            // so we fall back to our cached rich metadata.
                             current
                         } else {
-                            // Normal state updates
                             incoming
                         }
                     } ?: currentState.uiUninstallInfo
 
-                    val updatedState = currentState.copy(
+                    currentState.copy(
                         stage = newStage,
-                        currentPackageName = newPackageName, // Explicitly assign the new value, no fallback needed
+                        currentPackageName = newPackageName,
                         uiUninstallInfo = mergedUninstallInfo,
                         error = session.error
                     )
+                }
 
-                    // Re-calculate seed color from the icon if dynamic color is enabled
-                    if (updatedState.viewSettings.useDynColorFollowPkgIcon) {
+                if (newPackageName != oldPackageName) {
+
+                    if (newPackageName != null) {
+                        loadDisplayIcon(newPackageName)
+                    }
+
+                    if (_localState.value.viewSettings.useDynColorFollowPkgIcon) {
                         if (newPackageName.isNullOrEmpty()) {
                             if (defaultFallbackSeedColor != null) {
                                 _localState.update { it.copy(seedColor = Color(defaultFallbackSeedColor!!)) }
@@ -389,7 +402,7 @@ class InstallerViewModel(
                                     defaultFallbackSeedColor = getAppIconColor(
                                         sessionId = session.id,
                                         packageName = "",
-                                        preferSystemIcon = updatedState.viewSettings.preferSystemIconForUpdates
+                                        preferSystemIcon = _localState.value.viewSettings.preferSystemIconForUpdates
                                     )
                                     _localState.update { it.copy(seedColor = defaultFallbackSeedColor?.let { c -> Color(c) }) }
                                 }
@@ -399,14 +412,14 @@ class InstallerViewModel(
                                 val colorInt = getAppIconColor(
                                     sessionId = session.id,
                                     packageName = newPackageName,
-                                    preferSystemIcon = updatedState.viewSettings.preferSystemIconForUpdates
+                                    preferSystemIcon = _localState.value.viewSettings.preferSystemIconForUpdates
                                 )
                                 _localState.update { it.copy(seedColor = colorInt?.let { c -> Color(c) }) }
                             }
                         }
+                    } else if (_localState.value.seedColor != null) {
+                        _localState.update { it.copy(seedColor = null) }
                     }
-
-                    updatedState
                 }
 
                 // Icon loading logic: load only when the package name changes and is not null/empty
@@ -436,6 +449,10 @@ class InstallerViewModel(
         updateConfig { it.copy(bypassBlacklistInstallSetByUser = enable) }
     }
 
+    private fun selectInstallerMode(mode: InstallerMode) {
+        updateConfig { it.copy(installerMode = mode) }
+    }
+
     private fun selectInstaller(packageName: String?) {
         updateConfig { it.copy(installer = packageName) }
     }
@@ -455,7 +472,7 @@ class InstallerViewModel(
                 .onFailure { error ->
                     if (error is CancellationException) throw error
                     Timber.e(error, "Failed to load available users.")
-                    toast(error.getErrorMessage(context))
+                    _uiEvents.tryEmit(InstallerViewEvent.ShowErrorToast(error))
 
                     _localState.update { it.copy(availableUsers = emptyMap()) }
                     if (_localState.value.config.targetUserId != 0) selectTargetUser(0)
@@ -649,38 +666,37 @@ class InstallerViewModel(
 
     private fun shareApp(entity: AppEntity) {
         Timber.d("Sharing app: $entity")
-        try {
-            val filePath = entity.data.sourcePath()
-            if (filePath == null) {
-                toast("Invalid file entity for sharing")
-                return
-            }
 
-            val fileToShare = File(filePath)
-            if (!fileToShare.exists()) {
-                toast("File does not exist")
-                return
-            }
+        // Get the original URI string from the session.
+        // For single file sharing, we can use the first available URI.
+        // If your logic requires mapping specific entities to specific URIs,
+        // you would need to adjust the index accordingly.
+        val uriString = session.sourceUris.firstOrNull()
+        if (uriString == null) {
+            toast("No source URI available for sharing") // You can extract this to string resources
+            return
+        }
 
-            val authority = "${context.packageName}.fileprovider"
-            val uri = FileProvider.getUriForFile(context, authority, fileToShare)
+        val filePath = entity.data.sourcePath()
+        val mimeType = when {
+            entity is AppEntity.ModuleEntity -> "application/zip"
+            filePath?.endsWith(".apkm", true) == true ||
+                    filePath?.endsWith(".apks", true) == true ||
+                    filePath?.endsWith(".xapk", true) == true -> "application/zip"
 
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = when {
-                    entity is AppEntity.ModuleEntity -> "application/zip"
-                    filePath.endsWith(".apkm", true) || filePath.endsWith(".apks", true) || filePath.endsWith(".xapk", true) -> "application/zip"
-                    else -> "application/vnd.android.package-archive"
-                }
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
+            else -> "application/vnd.android.package-archive"
+        }
 
-            val chooser = Intent.createChooser(shareIntent, null)
-            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(chooser)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to share file")
-            toast("Failed to share file")
+        // Emit the event with the URI string
+        _uiEvents.tryEmit(InstallerViewEvent.ShareFile(uriString, mimeType))
+    }
+
+    private fun fetchInitiatorAppLabel(packageName: String?) {
+        if (packageName.isNullOrBlank()) return
+        viewModelScope.launch {
+            // Await the result from the clean domain use case
+            val label = getAppLabel(packageName)
+            _localState.update { it.copy(initiatorAppLabel = label) }
         }
     }
 }

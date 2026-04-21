@@ -46,70 +46,44 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavController
 import com.rosan.installer.R
+import com.rosan.installer.domain.settings.model.BiometricAuthMode
 import com.rosan.installer.ui.icons.AppIcons
+import com.rosan.installer.ui.navigation.LocalNavigator
 import com.rosan.installer.ui.page.main.widget.card.InfoTipCard
 import com.rosan.installer.ui.page.main.widget.dialog.UnsavedChangesDialog
 import com.rosan.installer.ui.page.main.widget.setting.AppBackButton
-import com.rosan.installer.ui.page.main.widget.setting.DataAllowAllRequestedPermissionsWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataAllowDowngradeWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataAllowTestOnlyWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataApkChooseAllWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataAuthorizerWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataAutoDeleteWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataBypassLowTargetSdkWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataCustomizeAuthorizerWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataDeclareInstallerWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataDescriptionWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataForAllUserWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataInstallModeWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataInstallReasonWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataInstallRequesterWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataManualDexoptWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataNameWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataPackageSourceWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataRequestUpdateOwnershipWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataShowToastWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataSplitChooseAllWidget
-import com.rosan.installer.ui.page.main.widget.setting.DataUserWidget
-import com.rosan.installer.ui.page.main.widget.setting.DisplaySdkWidget
-import com.rosan.installer.ui.page.main.widget.setting.DisplaySizeWidget
 import com.rosan.installer.ui.page.main.widget.setting.SplicedColumnGroup
+import com.rosan.installer.ui.page.main.widget.snackbar.SwipeableSnackbarHost
 import com.rosan.installer.ui.page.main.widget.util.EditEventCollector
-import com.rosan.installer.ui.theme.getM3TopBarColor
-import com.rosan.installer.ui.theme.installerHazeEffect
+import com.rosan.installer.ui.theme.getMaterial3AppBarColor
+import com.rosan.installer.ui.theme.installerMaterial3BlurEffect
 import com.rosan.installer.ui.theme.none
-import com.rosan.installer.ui.theme.rememberMaterial3HazeStyle
+import com.rosan.installer.ui.theme.rememberMaterial3BlurBackdrop
 import com.rosan.installer.ui.util.isNoneActive
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
+import top.yukonga.miuix.kmp.blur.layerBackdrop
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun NewEditPage(
-    navController: NavController,
     id: Long? = null,
     viewModel: EditViewModel = koinViewModel { parametersOf(id) },
     useBlur: Boolean
 ) {
-    val context = LocalContext.current
+    val navigator = LocalNavigator.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val dispatch = viewModel::dispatch
 
     val listState = rememberLazyListState()
     val snackBarHostState = remember { SnackbarHostState() }
     val topAppBarState = rememberTopAppBarState()
-    val hazeState = if (useBlur) remember { HazeState() } else null
-    val hazeStyle = rememberMaterial3HazeStyle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(topAppBarState)
     var showUnsavedDialog by remember { mutableStateOf(false) }
 
@@ -127,7 +101,7 @@ fun NewEditPage(
         },
         onConfirm = {
             showUnsavedDialog = false
-            navController.navigateUp()
+            navigator.pop()
         },
         errorMessages = state.activeErrorResIds.map { stringResource(it) }
     )
@@ -138,11 +112,13 @@ fun NewEditPage(
         showUnsavedDialog = true
     }
 
-    EditEventCollector(viewModel, navController, snackBarHostState)
+    EditEventCollector(viewModel, snackBarHostState)
 
     val focusManager = LocalFocusManager.current
     val layoutDirection = LocalLayoutDirection.current
     val horizontalSafeInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal).asPaddingValues()
+
+    val backdrop = rememberMaterial3BlurBackdrop(useBlur)
 
     Scaffold(
         modifier = Modifier
@@ -159,13 +135,13 @@ fun NewEditPage(
         contentWindowInsets = WindowInsets.none,
         topBar = {
             LargeFlexibleTopAppBar(
-                modifier = Modifier.installerHazeEffect(hazeState, hazeStyle),
+                modifier = Modifier.installerMaterial3BlurEffect(backdrop),
                 windowInsets = TopAppBarDefaults.windowInsets.add(WindowInsets(left = 12.dp)),
                 title = { Text(text = stringResource(id = if (id == null) R.string.add else R.string.update)) },
                 navigationIcon = {
                     Row {
                         AppBackButton(
-                            onClick = { navController.navigateUp() },
+                            onClick = { navigator.pop() },
                             icon = Icons.AutoMirrored.TwoTone.ArrowBack,
                             modifier = Modifier.size(36.dp),
                             containerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
@@ -175,9 +151,9 @@ fun NewEditPage(
                 },
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = hazeState.getM3TopBarColor(),
+                    containerColor = backdrop.getMaterial3AppBarColor(),
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
-                    scrolledContainerColor = hazeState.getM3TopBarColor()
+                    scrolledContainerColor = backdrop.getMaterial3AppBarColor()
                 )
             )
         },
@@ -197,12 +173,17 @@ fun NewEditPage(
                 onClick = { dispatch(EditViewAction.SaveData) }
             )
         },
-        snackbarHost = { SnackbarHost(hostState = snackBarHostState) },
+        snackbarHost = {
+            SwipeableSnackbarHost(
+                hostState = snackBarHostState,
+                snackbar = { SnackbarHost(hostState = snackBarHostState) }
+            )
+        },
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .then(hazeState?.let { Modifier.hazeSource(it) } ?: Modifier),
+                .then(backdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier),
             contentPadding = PaddingValues(
                 start = horizontalSafeInsets.calculateStartPadding(layoutDirection),
                 top = paddingValues.calculateTopPadding(),
@@ -222,6 +203,8 @@ fun NewEditPage(
                         DataCustomizeAuthorizerWidget(state, dispatch)
                     }
                     item { DataInstallModeWidget(state, dispatch) }
+                    if (state.globalInstallerBiometricAuthMode == BiometricAuthMode.FollowConfig)
+                        item { DataRequireBiometricAuthWidget(state, dispatch) }
                     item { DataShowToastWidget(state, dispatch) }
                 }
             }

@@ -23,6 +23,7 @@ fun ConfigEntity.toDomainModel(scopeCount: Int = 0): ConfigModel {
         enableCustomizePackageSource = this.enableCustomizePackageSource,
         packageSource = this.packageSource,
         installRequester = this.installRequester,
+        installerMode = this.installerMode,
         installer = this.installer,
         enableCustomizeUser = this.enableCustomizeUser,
         targetUserId = this.targetUserId,
@@ -41,6 +42,7 @@ fun ConfigEntity.toDomainModel(scopeCount: Int = 0): ConfigModel {
         requestUpdateOwnership = this.requestUpdateOwnership,
         splitChooseAll = this.splitChooseAll,
         apkChooseAll = this.apkChooseAll,
+        requireBiometricAuth = this.requireBiometricAuth,
         createdAt = this.createdAt,
         modifiedAt = this.modifiedAt,
         scopeCount = scopeCount,
@@ -74,6 +76,7 @@ fun ConfigModel.toEntity(): ConfigEntity {
         enableCustomizePackageSource = this.enableCustomizePackageSource,
         packageSource = this.packageSource,
         installRequester = this.installRequester,
+        installerMode = this.installerMode,
         installer = this.installer,
         enableCustomizeUser = this.enableCustomizeUser,
         targetUserId = this.targetUserId,
@@ -92,6 +95,7 @@ fun ConfigModel.toEntity(): ConfigEntity {
         requestUpdateOwnership = this.requestUpdateOwnership,
         splitChooseAll = this.splitChooseAll,
         apkChooseAll = this.apkChooseAll,
+        requireBiometricAuth = this.requireBiometricAuth,
         createdAt = this.createdAt,
         modifiedAt = this.modifiedAt
     )

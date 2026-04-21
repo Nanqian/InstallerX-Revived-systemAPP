@@ -11,7 +11,6 @@ data class AppPreferences(
     val authorizer: Authorizer,
     val alwaysUseRootInSystem: Boolean,
     val customizeAuthorizer: String,
-    val installMode: InstallMode,
     val showDialogInstallExtendedMenu: Boolean,
     val showSmartSuggestion: Boolean,
     val disableNotificationForDialogInstall: Boolean,
@@ -22,9 +21,13 @@ data class AppPreferences(
     val sdkCompareInMultiLine: Boolean,
     val showOPPOSpecial: Boolean,
     val showExpressiveUI: Boolean,
-    val installerRequireBiometricAuth: Boolean,
+    val installerRequireBiometricAuth: BiometricAuthMode,
     val uninstallerRequireBiometricAuth: Boolean,
     val showLiveActivity: Boolean,
+    val useMiIsland: Boolean,
+    val useMiIslandBypassRestriction: Boolean,
+    val useMiIslandOuterGlow: Boolean,
+    val useMiIslandBlockingIntervalMs: Int,
     val autoLockInstaller: Boolean,
     val autoSilentInstall: Boolean,
     val showMiuixUI: Boolean,
@@ -36,15 +39,17 @@ data class AppPreferences(
     val managedSharedUserIdExemptedPackages: List<NamedPackage>,
     val uninstallFlags: Int,
     // Lab Settings
+    val githubUpdateChannel: GithubUpdateChannel,
+    val customGithubProxyUrl: String,
     val labRootEnableModuleFlash: Boolean,
     val labRootShowModuleArt: Boolean,
     val labRootMode: RootMode,
-    val labUseMiIsland: Boolean,
-    val labUseMiIslandBlockingIntervalMs: Int,
     val labHttpProfile: HttpProfile,
     val labHttpSaveFile: Boolean,
     val labSetInstallRequester: Boolean,
     val labTapIconToShare: Boolean,
+    val labShowFilePath: Boolean,
+    val labShowInstallInitiator: Boolean,
     val enableFileLogging: Boolean,
     // Theme Settings
     val themeMode: ThemeMode,
@@ -56,5 +61,8 @@ data class AppPreferences(
     val seedColorInt: Int, // Stored as raw Int from DataStore
     val useDynColorFollowPkgIcon: Boolean,
     val useDynColorFollowPkgIconForLiveActivity: Boolean,
-    val useBlur: Boolean
+    val useBlur: Boolean,
+    // Predictive Back Settings
+    val predictiveBackAnimation: PredictiveBackAnimation,
+    val predictiveBackExitDirection: PredictiveBackExitDirection
 )

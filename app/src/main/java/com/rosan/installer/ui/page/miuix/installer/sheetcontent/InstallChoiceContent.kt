@@ -40,10 +40,10 @@ import com.rosan.installer.domain.engine.model.PackageAnalysisResult
 import com.rosan.installer.domain.engine.model.SessionMode
 import com.rosan.installer.ui.page.main.installer.InstallerViewAction
 import com.rosan.installer.ui.page.main.installer.InstallerViewModel
+import com.rosan.installer.ui.page.miuix.settings.preferred.MiuixNavigationItemWidget
 import com.rosan.installer.ui.page.miuix.widgets.MiuixCheckboxWidget
 import com.rosan.installer.ui.page.miuix.widgets.MiuixInstallerTipCard
 import com.rosan.installer.ui.page.miuix.widgets.MiuixMultiApkCheckboxWidget
-import com.rosan.installer.ui.page.miuix.widgets.MiuixNavigationItemWidget
 import com.rosan.installer.ui.page.miuix.widgets.WarningCard
 import com.rosan.installer.ui.theme.InstallerTheme
 import com.rosan.installer.ui.theme.miuixSheetCardColorDark
@@ -264,6 +264,17 @@ private fun ChoiceLazyList(
                             title = baseEntityInfo.label ?: "N/A",
                             description = stringResource(R.string.installer_package_name, baseEntityInfo.packageName),
                             onClick = {
+                                // Clear module selection to avoid mixed selection error across different packages
+                                if (moduleSelectableEntity?.selected == true) {
+                                    viewModel.dispatch(
+                                        InstallerViewAction.ToggleSelection(
+                                            packageName = moduleSelectableEntity.app.packageName,
+                                            entity = moduleSelectableEntity,
+                                            isMultiSelect = true
+                                        )
+                                    )
+                                }
+
                                 viewModel.dispatch(
                                     InstallerViewAction.ToggleSelection(
                                         packageName = baseSelectableEntity.app.packageName,
@@ -282,6 +293,17 @@ private fun ChoiceLazyList(
                             title = moduleEntityInfo.name,
                             description = stringResource(R.string.installer_module_id, moduleEntityInfo.id),
                             onClick = {
+                                // Clear base selection to avoid mixed selection error across different packages
+                                if (baseSelectableEntity?.selected == true) {
+                                    viewModel.dispatch(
+                                        InstallerViewAction.ToggleSelection(
+                                            packageName = baseSelectableEntity.app.packageName,
+                                            entity = baseSelectableEntity,
+                                            isMultiSelect = true
+                                        )
+                                    )
+                                }
+
                                 viewModel.dispatch(
                                     InstallerViewAction.ToggleSelection(
                                         packageName = moduleSelectableEntity.app.packageName,
@@ -319,7 +341,10 @@ private fun ChoiceLazyList(
                 val baseInfo = remember(itemsInGroup) {
                     itemsInGroup.firstNotNullOfOrNull { it.app as? AppEntity.BaseEntity }
                 }
-                val appLabel = baseInfo?.label ?: packageResult.packageName
+                val moduleInfo = remember(itemsInGroup) {
+                    itemsInGroup.firstNotNullOfOrNull { it.app as? AppEntity.ModuleEntity }
+                }
+                val appLabel = baseInfo?.label ?: moduleInfo?.name ?: packageResult.packageName
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
